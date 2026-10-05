@@ -8,7 +8,10 @@
 // standard includes
 #include <filesystem>
 #include <format>
+#include <mutex>
+#include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <string>
 
@@ -19,6 +22,7 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
 #include <Simple-Web-Server/server_http.hpp>
+#include <openssl/rand.h>
 
 // local includes
 #include "config.h"
@@ -34,6 +38,7 @@
 #include "rtsp.h"
 #include "stream.h"
 #include "system_tray.h"
+#include "syzygy/pairing_auth.h"
 #include "utility.h"
 #include "uuid.h"
 #include "video.h"
@@ -60,6 +65,16 @@ namespace nvhttp {
   struct pair_session_t;
 
   crypto::cert_chain_t cert_chain;
+  std::string syzygy_host_key;
+  struct host_key_pairing_t {
+    std::string nonce;
+    std::string message;
+    std::string certificate;
+    std::string name;
+    std::chrono::steady_clock::time_point created;
+  };
+  std::mutex host_key_pairings_mutex;
+  std::unordered_map<std::string, host_key_pairing_t> host_key_pairings;
   static std::string one_time_pin;
   static std::string otp_passphrase;
   static std::string otp_device_name;
@@ -679,8 +694,12 @@ namespace nvhttp {
 
     BOOST_LOG(debug) << " [--] "sv;
 
-    for (auto &[name, val] : request->parse_query_string()) {
-      BOOST_LOG(debug) << name << " -- " << val;
+    // Pair requests contain certificates and authentication proofs. Never log
+    // query parameters from this endpoint (the legacy PIN protocol also uses it).
+    if (request->path != "/pair") {
+      for (auto &[name, val] : request->parse_query_string()) {
+        BOOST_LOG(debug) << name << " -- " << val;
+      }
     }
 
     BOOST_LOG(debug) << " [--] "sv;
@@ -730,6 +749,125 @@ namespace nvhttp {
     }
 
     auto uniqID {get_arg(args, "uniqueid")};
+
+    // Syzygy key pairing is opt-in and independent of Moonlight's PIN flow.
+    auto syzygy_phase = args.find("syzygyphase"sv);
+    if (syzygy_phase != std::end(args)) {
+      if (syzygy_host_key.empty()) {
+        tree.put("root.<xmlattr>.status_code", 403);
+        tree.put("root.<xmlattr>.status_message", "Syzygy key pairing is unavailable");
+        return;
+      }
+      const auto now = std::chrono::steady_clock::now();
+      if (syzygy_phase->second == "challenge"sv) {
+        const auto certificate_hex = get_arg(args, "clientcert");
+        const auto device_name = get_arg(args, "devicename");
+        if (certificate_hex.empty() || certificate_hex.size() > 32768 || device_name.size() > 256) {
+          tree.put("root.<xmlattr>.status_code", 400);
+          tree.put("root.<xmlattr>.status_message", "Invalid Syzygy pairing identity or certificate");
+          return;
+        }
+        auto certificate_bytes = util::from_hex_vec(certificate_hex, true);
+        std::string certificate(certificate_bytes.begin(), certificate_bytes.end());
+        if (uniqID.empty() || uniqID.size() > 256 || !crypto::x509(certificate)) {
+          tree.put("root.<xmlattr>.status_code", 400);
+          tree.put("root.<xmlattr>.status_message", "Invalid Syzygy pairing identity or certificate");
+          return;
+        }
+        std::string nonce(32, '\0');
+        if (RAND_bytes(reinterpret_cast<unsigned char *>(nonce.data()), static_cast<int>(nonce.size())) != 1) {
+          tree.put("root.<xmlattr>.status_code", 500);
+          tree.put("root.<xmlattr>.status_message", "Unable to create a secure pairing challenge");
+          return;
+        }
+        auto message = syzygy::pairing_message(nonce, uniqID, certificate);
+        host_key_pairing_t pending {nonce, message, std::move(certificate), device_name, now};
+        {
+          std::lock_guard lock(host_key_pairings_mutex);
+          for (auto it = host_key_pairings.begin(); it != host_key_pairings.end();) {
+            if (now - it->second.created > 2min) it = host_key_pairings.erase(it);
+            else ++it;
+          }
+          if (!host_key_pairings.contains(uniqID) && host_key_pairings.size() >= 256) {
+            tree.put("root.<xmlattr>.status_code", 429);
+            tree.put("root.<xmlattr>.status_message", "Too many pending Syzygy pairing challenges");
+            return;
+          }
+          host_key_pairings.insert_or_assign(uniqID, std::move(pending));
+        }
+        tree.put("root.challenge", util::hex_vec(nonce, true));
+        tree.put("root.authmessage", util::hex_vec(message, true));
+        tree.put("root.plaincert", util::hex_vec(conf_intern.servercert, true));
+        tree.put("root.paired", 1);
+        tree.put("root.<xmlattr>.status_code", 200);
+        return;
+      }
+      if (syzygy_phase->second == "response"sv) {
+        host_key_pairing_t pending;
+        {
+          std::lock_guard lock(host_key_pairings_mutex);
+          auto it = host_key_pairings.find(uniqID);
+          if (it == host_key_pairings.end() || now - it->second.created > 2min) {
+            if (it != host_key_pairings.end()) host_key_pairings.erase(it);
+            tree.put("root.<xmlattr>.status_code", 400);
+            tree.put("root.<xmlattr>.status_message", "Invalid or expired Syzygy challenge");
+            return;
+          }
+          pending = std::move(it->second);
+          host_key_pairings.erase(it);  // A challenge is consumed even by a failed proof.
+        }
+        const auto certificate_hex = get_arg(args, "clientcert");
+        const auto signature_hex = get_arg(args, "clientsignature");
+        if (certificate_hex.empty() || certificate_hex.size() > 32768 || signature_hex.empty() || signature_hex.size() > 8192) {
+          tree.put("root.<xmlattr>.status_code", 400);
+          tree.put("root.<xmlattr>.status_message", "Invalid Syzygy pairing proof format");
+          return;
+        }
+        auto supplied_cert = util::from_hex_vec(certificate_hex, true);
+        std::string certificate(supplied_cert.begin(), supplied_cert.end());
+        auto client_cert = crypto::x509(pending.certificate);
+        const auto proof = get_arg(args, "syzygyproof");
+        const auto signature_bytes = util::from_hex_vec(signature_hex, true);
+        const std::string signature(signature_bytes.begin(), signature_bytes.end());
+        const bool valid = certificate == pending.certificate && client_cert &&
+            syzygy::verify_pairing_proof(syzygy_host_key, pending.message, proof) &&
+            crypto::verify256(client_cert, pending.message, signature);
+        if (!valid) {
+          tree.put("root.paired", 0);
+          tree.put("root.<xmlattr>.status_code", 401);
+          tree.put("root.<xmlattr>.status_message", "Syzygy pairing proof failed");
+          return;
+        }
+
+        if (std::any_of(client_root.named_devices.begin(), client_root.named_devices.end(), [&](const auto &device) {
+              return device->cert == pending.certificate;
+            })) {
+          tree.put("root.<xmlattr>.status_code", 409);
+          tree.put("root.<xmlattr>.status_message", "This client certificate is already paired");
+          return;
+        }
+
+        auto named_cert_p = std::make_shared<crypto::named_cert_t>();
+        named_cert_p->name = pending.name;
+        for (char& c : named_cert_p->name) {
+          if (c == '(') c = '[';
+          else if (c == ')') c = ']';
+        }
+        named_cert_p->cert = std::move(pending.certificate);
+        named_cert_p->uuid = uuid_util::uuid_t::generate().string();
+        named_cert_p->perm = PERM::_default;
+        named_cert_p->enable_legacy_ordering = true;
+        named_cert_p->allow_client_commands = false;
+        named_cert_p->always_use_virtual_display = false;
+        add_authorized_client(named_cert_p);
+        tree.put("root.paired", 1);
+        tree.put("root.<xmlattr>.status_code", 200);
+        return;
+      }
+      tree.put("root.<xmlattr>.status_code", 400);
+      tree.put("root.<xmlattr>.status_message", "Invalid Syzygy pairing phase");
+      return;
+    }
 
     args_t::const_iterator it;
     if (it = args.find("phrase"); it != std::end(args)) {
@@ -1631,6 +1769,11 @@ namespace nvhttp {
   void setup(const std::string &pkey, const std::string &cert) {
     conf_intern.pkey = pkey;
     conf_intern.servercert = cert;
+  }
+
+  void set_host_key(std::string key) {
+    if (key.size() != 48) throw std::invalid_argument("Invalid Syzygy host key");
+    syzygy_host_key = std::move(key);
   }
 
   void start() {

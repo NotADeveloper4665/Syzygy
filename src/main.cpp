@@ -185,10 +185,17 @@ int main(int argc, char *argv[]) {
   }
 
   if (cli.start || cli.print_key) {
+#ifdef _WIN32
+    if (cli.print_key) {
+      std::cerr << "Syzygy: host-key management is not available on Windows until owner-only ACL support is implemented.\n";
+      return 2;
+    }
+#else
     try {
       const auto key = syzygy::load_or_create_key(platf::appdata() / "syzygy");
+      if (cli.start) nvhttp::set_host_key(key);
       if (cli.print_key) {
-        std::cerr << "Sensitive host key: keep this output private. Key enrollment is not yet implemented.\n";
+        std::cerr << "Sensitive host key: keep this output private. Share it only with trusted clients.\n";
         key_stdout << key << std::endl;
       }
     } catch (const std::exception &error) {
@@ -196,6 +203,7 @@ int main(int argc, char *argv[]) {
       return 2;
     }
     if (cli.print_key && !cli.start) return 0;
+#endif
   }
 
   auto log_deinit_guard = logging::init(config::sunshine.min_log_level, config::sunshine.log_file);

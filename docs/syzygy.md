@@ -14,9 +14,15 @@ Syzygy is an Apollo-derived host intended to be configured through the CLI. The 
 
 The key is stored at `<Apollo application data>/syzygy/syzygy.psk`. Linux retains Apollo's `sunshine` application-data namespace for compatibility: normally `~/.config/sunshine/syzygy/syzygy.psk`, or `$XDG_CONFIG_HOME/sunshine/syzygy/syzygy.psk`. The directory must be owned by the current user with no group/other access, and the key file must have mode `0600`. Unsafe symlinks, nonregular files, insecure permissions, and malformed keys are rejected. Creation publishes a fully written file atomically without overwriting a concurrent creator's key.
 
-**Key enrollment is not connected to pairing in this milestone.** The key cannot yet replace the existing PIN pairing flow. Rotation, device revocation, full-permission key enrollment, and password-based PIN-less enrollment still need implementation and client integration. The web interface remains available until its administration functions have CLI equivalents.
+### Strong-key client pairing protocol
 
-Windows keeps the upstream executable and service setup. Syzygy key commands fail explicitly there until owner-only ACL handling is implemented and verified. Apollo's Windows SudoVDA integration remains in the imported baseline; Linux virtual-display support is not implemented.
+The host enables a separate `GET /pair` extension when started with `-s`. Existing PIN pairing is unchanged. A compatible client first requests `syzygyphase=challenge` with its `uniqueid`, `devicename`, and `clientcert` (the certificate bytes hex-encoded as in the GameStream API). The response supplies a 32-byte random `challenge`, the exact `authmessage` bytes in hex, and the host `plaincert`.
+
+The client decodes `authmessage`, computes `HMAC-SHA256(key-as-48-ASCII-hex-bytes, authmessage)`, and signs those same bytes with the private key corresponding to `clientcert` using SHA-256. It sends a second request with the same identity and certificate, `syzygyphase=response`, `syzygyproof` as 64 lowercase hex characters, and `clientsignature` as hex-encoded signature bytes. A proof is accepted once, within two minutes, and only for the exact client ID and certificate used to request the challenge. `/pair` query parameters are excluded from debug request logs.
+
+Successful enrollment saves the client certificate and grants standard view/list permissions; it does not grant input, file, clipboard, server-command, or full administrative permissions. The client must implement this extension before it can pair without the existing PIN. This is a high-entropy generated-key protocol, not a password protocol; a user-chosen connection password needs a reviewed PAKE design and a separate client flow. Key rotation and device revocation are still pending. The web interface remains available until its administration functions have CLI equivalents.
+
+Windows keeps the upstream executable and service setup. `-s` continues to start the host with PIN pairing there, while `-psk` and strong-key enrollment remain unavailable until owner-only ACL handling is implemented. Apollo's Windows SudoVDA integration remains in the imported baseline; Linux virtual-display support is not implemented.
 
 ## Build and validation
 
@@ -26,7 +32,7 @@ Local focused check:
 
 ```sh
 g++ -std=c++17 -Wall -Wextra -Werror -Isrc src/syzygy/cli.cpp src/syzygy/key_store.cpp \
-  tests/syzygy_smoke.cpp -lcrypto -pthread -o /tmp/syzygy-smoke
+  src/syzygy/pairing_auth.cpp tests/syzygy_smoke.cpp -lcrypto -pthread -o /tmp/syzygy-smoke
 /tmp/syzygy-smoke
 ```
 
@@ -35,7 +41,7 @@ g++ -std=c++17 -Wall -Wextra -Werror -Isrc src/syzygy/cli.cpp src/syzygy/key_sto
 | Subsystem | Existing extension point | Next work |
 | --- | --- | --- |
 | CLI/configuration | `src/main.cpp`, `src/config.cpp`, `src/syzygy/` | Key status/rotation and device revocation commands |
-| Pairing/authorization | `src/nvhttp.cpp`, `src/crypto.cpp` | Strict authentication flow, failed-attempt limits, and full streaming permissions after proof of the key |
+| Pairing/authorization | `src/nvhttp.cpp`, `src/crypto.cpp`, `src/syzygy/pairing_auth.*` | Eclipse client integration, failed-attempt limits, key rotation, and device revocation |
 | Password enrollment | New PAKE boundary alongside existing pairing | Evaluate an audited OPAQUE implementation and add a compatible Eclipse client flow |
 | Virtual displays | `src/process.cpp`, `src/platform/windows/virtual_display.*` | Verify existing SudoVDA lifecycle on Windows and evaluate Linux headless backends separately |
 | Kyber | Separate experimental transport boundary | Pin and audit the actual Kyber SDK/mux, license, authentication, and client compatibility before media integration |

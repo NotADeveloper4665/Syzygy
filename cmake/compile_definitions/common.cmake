@@ -81,6 +81,8 @@ set(SUNSHINE_TARGET_FILES
         "${CMAKE_SOURCE_DIR}/src/syzygy/cli.h"
         "${CMAKE_SOURCE_DIR}/src/syzygy/key_store.cpp"
         "${CMAKE_SOURCE_DIR}/src/syzygy/key_store.h"
+        "${CMAKE_SOURCE_DIR}/src/syzygy/pairing_auth.cpp"
+        "${CMAKE_SOURCE_DIR}/src/syzygy/pairing_auth.h"
         "${CMAKE_SOURCE_DIR}/src/crypto.cpp"
         "${CMAKE_SOURCE_DIR}/src/crypto.h"
         "${CMAKE_SOURCE_DIR}/src/nvhttp.cpp"

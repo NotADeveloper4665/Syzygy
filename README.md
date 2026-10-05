@@ -12,7 +12,7 @@ Syzygy is an Apollo-derived streaming host being developed for CLI setup, protec
 ./syzygy -s -nvec -h264 -psk
 ```
 
-**This is an initial development build. Host-key enrollment is not yet connected to pairing.** PIN-less password pairing, device revocation, Kyber transport, and additional virtual-display controls are upcoming work. Existing Apollo pairing and streaming behavior remain available.
+**This is an early development build.** A separate host-key challenge-response pairing endpoint is implemented for compatible clients; Eclipse/Moonlight client integration is still required. Existing Apollo PIN pairing and streaming behavior remain available. Password-based pairing, key rotation and device revocation, Kyber transport, and additional virtual-display controls remain future work.
 
 See [CLI usage, current limits, and the source map](docs/syzygy.md). Development build artifacts appear under [GitHub Actions](https://github.com/NotADeveloper4665/Syzygy/actions).
 

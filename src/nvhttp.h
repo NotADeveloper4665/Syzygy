@@ -78,6 +78,7 @@ namespace nvhttp {
    * @param cert
    */
   void setup(const std::string &pkey, const std::string &cert);
+  void set_host_key(std::string key);
 
   class SunshineHTTPS: public SimpleWeb::HTTPS {
   public:

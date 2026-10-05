@@ -1,5 +1,6 @@
 #include "syzygy/cli.h"
 #include "syzygy/key_store.h"
+#include "syzygy/pairing_auth.h"
 
 #include <algorithm>
 #include <fstream>
@@ -47,6 +48,14 @@ int main() {
     require(command.arguments == legacy && !command.print_key, "command arguments must not become key flags");
     require(!parse({"syzygy", "-psk", "--help"}).print_key, "help must not print a key");
     require(parse({"syzygy", "-psk"}).arguments.size() == 1, "key flag must not toggle legacy UPnP");
+    const std::string host_key(48, 'a');
+    const auto message = syzygy::pairing_message(std::string(32, 'n'), "desktop-1", "client-certificate");
+    const auto proof = syzygy::pairing_proof(host_key, message);
+    require(proof.size() == 64 && syzygy::verify_pairing_proof(host_key, message, proof), "valid host-key proof");
+    require(!syzygy::verify_pairing_proof(std::string(48, 'b'), message, proof), "reject proof from another host key");
+    require(!syzygy::verify_pairing_proof(host_key, message + "x", proof), "reject modified pairing transcript");
+    require(syzygy::pairing_message(std::string(32, 'n'), "desktop-2", "client-certificate") != message,
+      "bind proof to the client identity");
 
     const auto directory = root / "private";
     const auto first = syzygy::load_or_create_key(directory);
@@ -86,7 +95,7 @@ int main() {
     chmod(directory.c_str(), 0755);
     rejects([&] { syzygy::load_or_create_key(directory); }, "insecure directory permissions must fail");
     fs::remove_all(root);
-    std::cout << "PASS: Syzygy CLI, key persistence, permissions, concurrent creation, and unsafe-file rejection\n";
+    std::cout << "PASS: CLI, key persistence and permissions, concurrent creation, unsafe-file rejection, and pairing proofs\n";
     return 0;
   } catch (const std::exception &error) {
     fs::remove_all(root);
