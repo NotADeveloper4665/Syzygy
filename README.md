@@ -18,6 +18,6 @@ See [CLI usage, current limits, and the source map](docs/syzygy.md). Development
 
 ## Upstream and license
 
-Based on [ClassicOldSong/Apollo](https://github.com/ClassicOldSong/Apollo) commit `adc5c5a0bd80831ce495434bb16aee2cd4175fb8`, which derives from Sunshine. The complete upstream Git history and dependency pins are retained. See the preserved [Apollo README](README.upstream.md) for its platform support and existing Windows SudoVDA integration.
+Based on [ClassicOldSong/Apollo](https://github.com/ClassicOldSong/Apollo) commit `adc5c5a0bd80831ce495434bb16aee2cd4175fb8`, which derives from Sunshine. The upstream source snapshot, notices, and dependency pins are retained. See the preserved [Apollo README](README.upstream.md) for its platform support and existing Windows SudoVDA integration.
 
 Distributed under [GPLv3](LICENSE), with upstream copyright notices and dependency licenses retained.
