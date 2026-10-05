@@ -751,7 +751,7 @@ namespace nvhttp {
     auto uniqID {get_arg(args, "uniqueid")};
 
     // Syzygy key pairing is opt-in and independent of Moonlight's PIN flow.
-    auto syzygy_phase = args.find("syzygyphase"sv);
+    auto syzygy_phase = args.find("syzygyphase"s);
     if (syzygy_phase != std::end(args)) {
       if (syzygy_host_key.empty()) {
         tree.put("root.<xmlattr>.status_code", 403);
