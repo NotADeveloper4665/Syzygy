@@ -37,6 +37,7 @@ jobs:
           BUILD_VERSION: '0.0.1'
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
             -DSUNSHINE_ENABLE_CUDA=OFF -DSUNSHINE_ENABLE_TRAY=OFF -DBUILD_TESTS=OFF \
             -DSUNSHINE_ASSETS_DIR_DEF=assets -DSUNSHINE_EXECUTABLE_PATH=/usr/bin/syzygy
           cmake --build build --parallel 2
