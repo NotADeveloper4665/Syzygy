@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.20)
 # `cmake_path(CONVERT ... TO_NATIVE_PATH_LIST ...)` requires 3.20
 # todo - set this conditionally
 
-project(Syzygy VERSION 0.0.1
+project(Syzygy VERSION 0.0.2
         DESCRIPTION "CLI-first self-hosted game streaming host"
         HOMEPAGE_URL "https://github.com/NotADeveloper4665/Syzygy")
 

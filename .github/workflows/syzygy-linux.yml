@@ -10,6 +10,7 @@ permissions:
 jobs:
   linux:
     runs-on: ubuntu-24.04
+    container: fedora:44
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -20,11 +21,12 @@ jobs:
           node-version: '22'
       - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config rpm libcap-dev libcurl4-openssl-dev \
-            libdrm-dev libevdev-dev libgbm-dev libminiupnpc-dev libnotify-dev libnuma-dev libopus-dev \
-            libpulse-dev libssl-dev libva-dev libwayland-dev libx11-dev libxcb-shm0-dev libxcb-xfixes0-dev \
-            libxcb1-dev libxfixes-dev libxrandr-dev libxtst-dev
+          dnf install -y @development-tools cmake ninja-build pkgconf-pkg-config rpm-build nodejs npm git curl wget which \
+            libcap-devel libcurl-devel libdrm-devel libevdev-devel libgudev-devel libnotify-devel libva-devel \
+            libX11-devel libxcb-devel libXcursor-devel libXfixes-devel libXi-devel libXinerama-devel \
+            libXrandr-devel libXtst-devel mesa-libGL-devel mesa-libgbm-devel miniupnpc-devel numactl-devel \
+            openssl-devel opus-devel pulseaudio-libs-devel systemd-udev systemd-rpm-macros desktop-file-utils \
+            libappstream-glib
       - name: Test CLI and protected key storage
         run: |
           bash -n scripts/install-syzygy.sh
@@ -34,7 +36,7 @@ jobs:
       - name: Configure and build host and compatibility web assets
         env:
           BRANCH: main
-          BUILD_VERSION: '0.0.1'
+          BUILD_VERSION: '0.0.2'
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr \
@@ -50,12 +52,12 @@ jobs:
           path: build/cpack_artifacts/*.rpm
           if-no-files-found: error
       - name: Publish versioned GitHub release
-        if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'RPM executable path'))
+        if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'release v0.0.2'))
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v0.0.1' }}
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v0.0.2' }}
           target_commitish: ${{ github.sha }}
-          name: Syzygy ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v0.0.1' }}
+          name: Syzygy ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v0.0.2' }}
           generate_release_notes: true
           files: build/cpack_artifacts/*.rpm
       - name: Check standalone key output without starting streaming
