@@ -64,4 +64,20 @@ namespace syzygy {
     }
     return CRYPTO_memcmp(expected.data(), proof.data(), expected.size()) == 0;
   }
+
+  std::string pairing_confirmation(std::string_view host_key, std::string_view message) {
+    std::string confirmation_message("Syzygy server confirmation v1");
+    confirmation_message.append(message);
+    return pairing_proof(host_key, confirmation_message);
+  }
+
+  bool verify_pairing_confirmation(std::string_view host_key, std::string_view message, std::string_view proof) {
+    std::string expected;
+    try {
+      expected = pairing_confirmation(host_key, message);
+    } catch (...) {
+      return false;
+    }
+    return proof.size() == expected.size() && CRYPTO_memcmp(expected.data(), proof.data(), expected.size()) == 0;
+  }
 }

@@ -9,4 +9,6 @@ namespace syzygy {
   std::string pairing_message(std::string_view nonce, std::string_view unique_id, std::string_view certificate);
   std::string pairing_proof(std::string_view host_key, std::string_view message);
   bool verify_pairing_proof(std::string_view host_key, std::string_view message, std::string_view proof);
+  std::string pairing_confirmation(std::string_view host_key, std::string_view message);
+  bool verify_pairing_confirmation(std::string_view host_key, std::string_view message, std::string_view proof);
 }

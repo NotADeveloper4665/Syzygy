@@ -860,6 +860,7 @@ namespace nvhttp {
         named_cert_p->allow_client_commands = false;
         named_cert_p->always_use_virtual_display = false;
         add_authorized_client(named_cert_p);
+        tree.put("root.serverproof", syzygy::pairing_confirmation(syzygy_host_key, pending.message));
         tree.put("root.paired", 1);
         tree.put("root.<xmlattr>.status_code", 200);
         return;
