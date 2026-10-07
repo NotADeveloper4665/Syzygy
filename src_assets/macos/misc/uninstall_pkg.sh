@@ -35,7 +35,7 @@ for dir in ${DIRECTORIES}; do
     fi
 done
 
-echo "Forgetting Sunshine..."
+echo "Forgetting Syzygy..."
 pkgutil --forget $package_name
 
-echo "Sunshine has been uninstalled..."
+echo "Syzygy has been uninstalled..."

@@ -4,20 +4,20 @@ cmake_minimum_required(VERSION 3.20)
 # `cmake_path(CONVERT ... TO_NATIVE_PATH_LIST ...)` requires 3.20
 # todo - set this conditionally
 
-project(Syzygy VERSION 0.1.0
-        DESCRIPTION "CLI-first Apollo-derived streaming host"
+project(Syzygy VERSION 0.0.1
+        DESCRIPTION "CLI-first self-hosted game streaming host"
         HOMEPAGE_URL "https://github.com/NotADeveloper4665/Syzygy")
 
 set(PROJECT_LICENSE "GPL-3.0-only")
 
 set(PROJECT_FQDN "dev.lizardbyte.app.Sunshine")
 
-set(PROJECT_BRIEF_DESCRIPTION "GameStream host for Artemis")  # must be <= 35 characters
+set(PROJECT_BRIEF_DESCRIPTION "Syzygy game streaming host")  # must be <= 35 characters
 
 set(PROJECT_LONG_DESCRIPTION "Offering low latency, cloud gaming server capabilities with support for AMD, Intel, \
-and Nvidia GPUs for hardware encoding. Software encoding is also available. You can connect to Apollo from any \
-Artemis client on a variety of devices. A web UI is provided to allow configuration, and client pairing, from \
-your favorite web browser. Pair from the local server or any mobile device.")
+and Nvidia GPUs for hardware encoding. Software encoding is also available. Connect from a compatible Moonlight or \
+Eclipse client on a variety of devices. Syzygy includes a web interface for configuration and client pairing, \
+accessible from your browser on the host or another device on your network.")
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     message(STATUS "Setting build type to 'Release' as none was specified.")

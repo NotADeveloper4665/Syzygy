@@ -9,5 +9,5 @@ Terminal=true
 Type=Application
 Version=1.0
 X-AppImage-Arch=x86_64
-X-AppImage-Name=sunshine
+X-AppImage-Name=Syzygy
 X-AppImage-Version=@PROJECT_VERSION@

@@ -42,6 +42,11 @@ int main() {
     require(parse({"syzygy", "-nvenc"}).arguments.back() == "encoder=nvenc", "NVENC spelling alias");
     require(parse({"syzygy", "-vaapi"}).arguments.back() == "encoder=vaapi", "VA-API encoder option");
     require(parse({"syzygy", "-software"}).arguments.back() == "encoder=software", "software encoder option");
+    const auto automatic = parse({"syzygy", "-s", "-auto", "encoder=vaapi", "capture=kwin"});
+    require(automatic.start && automatic.arguments == std::vector<std::string>({
+      "syzygy", "encoder=vaapi", "capture=kwin", "encoder=", "capture="}),
+      "automatic mode must override stale encoder and capture settings");
+    rejects([] { parse({"syzygy", "-auto", "-nvenc"}); }, "automatic mode cannot be combined with an encoder override");
     rejects([] { parse({"syzygy", "-nvec", "-software"}); }, "conflicting encoder flags must fail");
     const std::vector<std::string> legacy {"syzygy", "--creds", "test-user", "-psk"};
     auto command = parse(legacy);

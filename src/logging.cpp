@@ -133,7 +133,7 @@ namespace logging {
         android_priority = ANDROID_LOG_UNKNOWN;
         break;
     }
-    __android_log_print(android_priority, "Sunshine", "%s", message.c_str());
+    __android_log_print(android_priority, "Syzygy", "%s", message.c_str());
   }
 
   // custom sink backend for android
@@ -272,9 +272,10 @@ namespace logging {
       << std::endl
       << "    --help                    | print help"sv << std::endl
       << "    --creds username password | set user credentials for the Web manager"sv << std::endl
-      << "    --version                 | print the version of sunshine"sv << std::endl
+      << "    --version                 | print the version of Syzygy"sv << std::endl
       << "    Syzygy shortcuts (Linux)"sv << std::endl
       << "        -s       | start the host and initialize its private key store"sv << std::endl
+      << "        -auto    | clear saved encoder/capture overrides and auto-detect both"sv << std::endl
       << "        -nvec    | select NVENC (-nvenc is also accepted)"sv << std::endl
       << "        -vaapi   | select VA-API; -software selects software encoding"sv << std::endl
       << "        -h264    | disable HEVC and AV1 advertisement"sv << std::endl

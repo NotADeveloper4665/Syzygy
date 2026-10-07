@@ -13,8 +13,8 @@ Install Syzygy from source on Linux.
 Usage: install-syzygy.sh [--help]
 
 The script installs build dependencies using apt, dnf, zypper, pacman, or apk,
-builds and installs Syzygy, detects an available video encoder, creates the
-current user's host key, and prints a start command.
+builds and installs Syzygy, creates the current user's host key, and prints a
+start command that enables automatic capture and encoder selection.
 
 Environment:
   SYZYGY_BRANCH          Git branch or tag to build (default: main)
@@ -95,27 +95,6 @@ install_dependencies() {
   esac
 }
 
-detect_encoder() {
-  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
-    printf '%s' '-nvenc'
-    return
-  fi
-
-  local vendor
-  for vendor in /sys/class/drm/card*/device/vendor; do
-    [[ -r "$vendor" ]] || continue
-    case "$(<"$vendor")" in
-      0x8086|0x1002)
-        if compgen -G '/dev/dri/renderD*' >/dev/null; then
-          printf '%s' '-vaapi'
-          return
-        fi
-        ;;
-    esac
-  done
-  printf '%s' '-software'
-}
-
 if [[ ! -r /etc/os-release ]]; then
   printf 'Cannot identify this Linux distribution: /etc/os-release is missing.\n' >&2
   exit 1
@@ -174,8 +153,7 @@ if [[ ! "$key" =~ ^[0-9a-f]{48}$ ]]; then
   exit 1
 fi
 
-encoder="$(detect_encoder)"
 printf '\nHost access key (store it securely; it grants full host permissions):\n%s\n' "$key"
-printf '\nDetected recommended encoder: %s\n' "${encoder#-}"
-printf 'To start run: syzygy -s -psk %s\n' "$encoder"
+printf '\nCapture and encoder selection: automatic\n'
+printf 'To start run: syzygy -s -auto\n'
 printf 'Run the command as the same Linux account that owns this key.\n'

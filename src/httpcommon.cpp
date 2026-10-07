@@ -133,7 +133,7 @@ namespace http {
     fs::path pkey_path = pkey;
     fs::path cert_path = cert;
 
-    auto creds = crypto::gen_creds("Sunshine Gamestream Host"sv, 2048);
+    auto creds = crypto::gen_creds("Syzygy GameStream Host"sv, 2048);
 
     auto pkey_dir = pkey_path;
     auto cert_dir = cert_path;

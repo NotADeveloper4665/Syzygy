@@ -8,6 +8,7 @@ namespace syzygy {
     cli_options options;
     std::string encoder;
     bool h264 = false;
+    bool automatic = false;
     for (int i = 0; i < argc; ++i) {
       const std::string_view arg(argv[i]);
       if (i == 0) {
@@ -20,6 +21,8 @@ namespace syzygy {
         options.print_key = true;
       } else if (arg == "-h264") {
         h264 = true;
+      } else if (arg == "-auto") {
+        automatic = true;
       } else if (arg == "-nvec" || arg == "-nvenc" || arg == "-vaapi" || arg == "-software") {
         const std::string selected = arg == "-nvec" || arg == "-nvenc" ? "nvenc" : std::string(arg.substr(1));
         if (!encoder.empty() && encoder != selected) {
@@ -28,8 +31,8 @@ namespace syzygy {
         encoder = selected;
       } else if (arg.substr(0, 2) == "--") {
         // Apollo commands consume the rest of argv verbatim (including passwords).
-        if (options.print_key || options.start || h264 || !encoder.empty()) {
-          throw std::invalid_argument("Use Syzygy shortcuts separately from Apollo --commands");
+        if (options.print_key || options.start || h264 || automatic || !encoder.empty()) {
+          throw std::invalid_argument("Use Syzygy shortcuts separately from --commands");
         }
         for (; i < argc; ++i) {
           options.arguments.emplace_back(argv[i]);
@@ -37,6 +40,14 @@ namespace syzygy {
       } else {
         options.arguments.emplace_back(arg);
       }
+    }
+    if (automatic && !encoder.empty()) {
+      throw std::invalid_argument("-auto cannot be combined with an encoder shortcut");
+    }
+    if (automatic) {
+      // Explicit empty values override stale manual settings in the config file.
+      options.arguments.emplace_back("encoder=");
+      options.arguments.emplace_back("capture=");
     }
     if (!encoder.empty()) {
       options.arguments.emplace_back("encoder=" + encoder);

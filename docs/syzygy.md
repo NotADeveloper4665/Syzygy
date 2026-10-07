@@ -1,18 +1,18 @@
 # Syzygy development status
 
-Syzygy is an Apollo-derived host intended to be configured through the CLI. The imported base is `ClassicOldSong/Apollo` commit `adc5c5a0bd80831ce495434bb16aee2cd4175fb8`. Its source snapshot, license, notices, and pinned submodules are retained. The local checkout retains upstream history; the GitHub repository starts from this documented source import.
+Syzygy is a streaming host configured through the CLI. Upstream source history, license notices, and pinned dependencies are retained in the repository.
 
 ## First milestone: Linux CLI and key storage
 
 ```sh
-./syzygy -s -nvec -h264 -psk
+./syzygy -s -auto
 ```
 
-`-s` starts the host, `-nvec` (or `-nvenc`) selects NVIDIA NVENC, and `-h264` disables HEVC and AV1 advertisement. `-vaapi` and `-software` select other encoder paths. Select only one encoder shortcut. Existing Apollo `name=value` configuration remains available; explicit shortcuts take precedence over those values. The legacy `-p` still toggles UPnP.
+`-s` starts the host. `-auto` clears saved encoder and capture overrides so the host probes the available backends on this machine; it is useful when moving the configuration between systems or recovering from an invalid saved option such as `capture=kwin`. Without `-auto`, saved configuration is respected. For a manual encoder override, use `-nvec` (or `-nvenc`), `-vaapi`, or `-software`; select only one. `-h264` disables HEVC and AV1 advertisement. The legacy `-p` still toggles UPnP.
 
 `-psk` loads or generates a persistent 48-character random hex key and prints only that key to stdout. With `-s`, startup logs go to stderr; without `-s`, the command exits after printing. Handle this output as a secret. It is not placed in normal logs.
 
-The key is stored at `<Apollo application data>/syzygy/syzygy.psk`. Linux retains Apollo's `sunshine` application-data namespace for compatibility: normally `~/.config/sunshine/syzygy/syzygy.psk`, or `$XDG_CONFIG_HOME/sunshine/syzygy/syzygy.psk`. The directory must be owned by the current user with no group/other access, and the key file must have mode `0600`. Unsafe symlinks, nonregular files, insecure permissions, and malformed keys are rejected. Creation publishes a fully written file atomically without overwriting a concurrent creator's key.
+The key is stored under the host's application data directory, normally `~/.config/sunshine/syzygy/syzygy.psk` or `$XDG_CONFIG_HOME/sunshine/syzygy/syzygy.psk` on Linux. The inherited `sunshine` directory name is kept for compatibility with existing installations. The directory must be owned by the current user with no group/other access, and the key file must have mode `0600`. Unsafe symlinks, nonregular files, insecure permissions, and malformed keys are rejected. Creation publishes a fully written file atomically without overwriting a concurrent creator's key.
 
 ## Linux source installer
 
@@ -24,7 +24,7 @@ less install-syzygy.sh
 bash install-syzygy.sh
 ```
 
-It builds the selected `main` branch into a temporary directory, installs the executable and runtime assets, detects NVIDIA NVENC or Intel/AMD VAAPI when available, and otherwise recommends software encoding. It generates or retrieves the key for the account running the script and prints the command to start the server. The server is not started automatically. Use `SYZYGY_BRANCH` to select a different branch or tag and `SYZYGY_INSTALL_PREFIX` to change the `/usr/local` install prefix. Systems using other package managers can follow [the manual build instructions](building.md).
+It builds the selected `main` branch into a temporary directory and installs the executable and runtime assets. It generates or retrieves the key for the account running the script and prints `syzygy -s -auto` as the start command. The server is not started automatically. Automatic mode clears saved encoder and capture overrides, then lets Syzygy probe the available backends at startup. Use `SYZYGY_BRANCH` to select a different branch or tag and `SYZYGY_INSTALL_PREFIX` to change the `/usr/local` install prefix. Systems using other package managers can follow [the manual build instructions](building.md).
 
 ### Strong-key client pairing protocol
 
@@ -34,7 +34,7 @@ The client decodes `authmessage`, computes `HMAC-SHA256(key-as-48-ASCII-hex-byte
 
 Successful enrollment saves the client certificate and grants the full permission set to the key holder, including input, file, clipboard, server-command, and streaming permissions. The client must implement this extension before it can pair without the existing PIN. This is a high-entropy generated-key protocol, not a password protocol; a user-chosen connection password needs a reviewed PAKE design and a separate client flow. Key rotation and device revocation are still pending. The web interface remains available until its administration functions have CLI equivalents.
 
-Windows keeps the upstream executable and service setup. `-s` continues to start the host with PIN pairing there, while `-psk` and strong-key enrollment remain unavailable until owner-only ACL handling is implemented. Apollo's Windows SudoVDA integration remains in the imported baseline; Linux virtual-display support is not implemented.
+Windows keeps the inherited executable and service setup. `-s` continues to start the host with PIN pairing there, while `-psk` and strong-key enrollment remain unavailable until owner-only ACL handling is implemented. The existing Windows SudoVDA integration remains available; Linux virtual-display support is not implemented.
 
 ## Build and validation
 

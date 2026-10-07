@@ -5,7 +5,7 @@ set(SUNSHINE_PUBLISHER_WEBSITE "https://github.com/NotADeveloper4665/Syzygy"
         CACHE STRING "The URL of the publisher's website.")
 set(SUNSHINE_PUBLISHER_ISSUE_URL "https://github.com/NotADeveloper4665/Syzygy/issues"
         CACHE STRING "The URL of the publisher's support site or issue tracker.
-        If you provide a modified version of Sunshine, we kindly request that you use your own url.")
+        Syzygy builds should use the Syzygy project issue tracker.")
 
 option(BUILD_DOCS "Build documentation" OFF)
 option(BUILD_TESTS "Build tests" OFF)
