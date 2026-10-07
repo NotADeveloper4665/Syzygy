@@ -26,6 +26,7 @@ jobs:
             libxcb1-dev libxfixes-dev libxrandr-dev libxtst-dev
       - name: Test CLI and protected key storage
         run: |
+          bash -n scripts/install-syzygy.sh
           g++ -std=c++17 -Wall -Wextra -Werror -Isrc src/syzygy/cli.cpp src/syzygy/key_store.cpp src/syzygy/pairing_auth.cpp \
             tests/syzygy_smoke.cpp -lcrypto -pthread -o syzygy-smoke
           ./syzygy-smoke

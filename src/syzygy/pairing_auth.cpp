@@ -65,16 +65,22 @@ namespace syzygy {
     return CRYPTO_memcmp(expected.data(), proof.data(), expected.size()) == 0;
   }
 
-  std::string pairing_confirmation(std::string_view host_key, std::string_view message) {
+  std::string pairing_confirmation(std::string_view host_key, std::string_view message,
+      std::string_view server_certificate) {
+    std::array<unsigned char, SHA256_DIGEST_LENGTH> fingerprint {};
+    SHA256(reinterpret_cast<const unsigned char *>(server_certificate.data()),
+        server_certificate.size(), fingerprint.data());
     std::string confirmation_message("Syzygy server confirmation v1");
     confirmation_message.append(message);
+    confirmation_message.append(reinterpret_cast<const char *>(fingerprint.data()), fingerprint.size());
     return pairing_proof(host_key, confirmation_message);
   }
 
-  bool verify_pairing_confirmation(std::string_view host_key, std::string_view message, std::string_view proof) {
+  bool verify_pairing_confirmation(std::string_view host_key, std::string_view message,
+      std::string_view server_certificate, std::string_view proof) {
     std::string expected;
     try {
-      expected = pairing_confirmation(host_key, message);
+      expected = pairing_confirmation(host_key, message, server_certificate);
     } catch (...) {
       return false;
     }

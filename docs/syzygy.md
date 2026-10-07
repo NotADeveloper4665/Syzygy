@@ -14,11 +14,23 @@ Syzygy is an Apollo-derived host intended to be configured through the CLI. The 
 
 The key is stored at `<Apollo application data>/syzygy/syzygy.psk`. Linux retains Apollo's `sunshine` application-data namespace for compatibility: normally `~/.config/sunshine/syzygy/syzygy.psk`, or `$XDG_CONFIG_HOME/sunshine/syzygy/syzygy.psk`. The directory must be owned by the current user with no group/other access, and the key file must have mode `0600`. Unsafe symlinks, nonregular files, insecure permissions, and malformed keys are rejected. Creation publishes a fully written file atomically without overwriting a concurrent creator's key.
 
+## Linux source installer
+
+The repository includes `scripts/install-syzygy.sh` for Debian/Ubuntu (apt), Fedora (dnf), openSUSE (zypper), Arch (pacman), and Alpine (apk) systems. Run the reviewed script as a regular user; it uses sudo only when installing packages and writing under `/usr/local`.
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/NotADeveloper4665/Syzygy/main/scripts/install-syzygy.sh
+less install-syzygy.sh
+bash install-syzygy.sh
+```
+
+It builds the selected `main` branch into a temporary directory, installs the executable and runtime assets, detects NVIDIA NVENC or Intel/AMD VAAPI when available, and otherwise recommends software encoding. It generates or retrieves the key for the account running the script and prints the command to start the server. The server is not started automatically. Use `SYZYGY_BRANCH` to select a different branch or tag and `SYZYGY_INSTALL_PREFIX` to change the `/usr/local` install prefix. Systems using other package managers can follow [the manual build instructions](building.md).
+
 ### Strong-key client pairing protocol
 
 The host enables a separate `GET /pair` extension when started with `-s`. Existing PIN pairing is unchanged. A compatible client first requests `syzygyphase=challenge` with its `uniqueid`, `devicename`, and `clientcert` (the certificate bytes hex-encoded as in the GameStream API). The response supplies a 32-byte random `challenge`, the exact `authmessage` bytes in hex, and the host `plaincert`.
 
-The client decodes `authmessage`, computes `HMAC-SHA256(key-as-48-ASCII-hex-bytes, authmessage)`, and signs those same bytes with the private key corresponding to `clientcert` using SHA-256. It sends a second request with the same identity and certificate, `syzygyphase=response`, `syzygyproof` as 64 lowercase hex characters, and `clientsignature` as hex-encoded signature bytes. On success, the host returns `serverproof`, which is HMAC-SHA256 over the ASCII bytes `Syzygy server confirmation v1` followed by the exact decoded `authmessage`. Eclipse verifies this before trusting the host certificate. A challenge is accepted once, within two minutes, and only for the exact client ID and certificate used to request it. `/pair` query parameters are excluded from debug request logs.
+The client decodes `authmessage`, computes `HMAC-SHA256(key-as-48-ASCII-hex-bytes, authmessage)`, and signs those same bytes with the private key corresponding to `clientcert` using SHA-256. It sends a second request with the same identity and certificate, `syzygyphase=response`, `syzygyproof` as 64 lowercase hex characters, and `clientsignature` as hex-encoded signature bytes. On success, the host returns `serverproof`, which is HMAC-SHA256 over the ASCII bytes `Syzygy server confirmation v1`, the exact decoded `authmessage`, and the binary SHA-256 fingerprint of the returned server certificate. Eclipse verifies this before trusting the host certificate. A challenge is accepted once, within two minutes, and only for the exact client ID and certificate used to request it. `/pair` query parameters are excluded from debug request logs.
 
 Successful enrollment saves the client certificate and grants the full permission set to the key holder, including input, file, clipboard, server-command, and streaming permissions. The client must implement this extension before it can pair without the existing PIN. This is a high-entropy generated-key protocol, not a password protocol; a user-chosen connection password needs a reviewed PAKE design and a separate client flow. Key rotation and device revocation are still pending. The web interface remains available until its administration functions have CLI equivalents.
 
@@ -41,7 +53,7 @@ g++ -std=c++17 -Wall -Wextra -Werror -Isrc src/syzygy/cli.cpp src/syzygy/key_sto
 | Subsystem | Existing extension point | Next work |
 | --- | --- | --- |
 | CLI/configuration | `src/main.cpp`, `src/config.cpp`, `src/syzygy/` | Key status/rotation and device revocation commands |
-| Pairing/authorization | `src/nvhttp.cpp`, `src/crypto.cpp`, `src/syzygy/pairing_auth.*` | Eclipse client integration, failed-attempt limits, key rotation, and device revocation |
+| Pairing/authorization | `src/nvhttp.cpp`, `src/crypto.cpp`, `src/syzygy/pairing_auth.*` | Failed-attempt limits, key rotation, and device revocation |
 | Password enrollment | New PAKE boundary alongside existing pairing | Evaluate an audited OPAQUE implementation and add a compatible Eclipse client flow |
 | Virtual displays | `src/process.cpp`, `src/platform/windows/virtual_display.*` | Verify existing SudoVDA lifecycle on Windows and evaluate Linux headless backends separately |
 | Kyber | Separate experimental transport boundary | Pin and audit the actual Kyber SDK/mux, license, authentication, and client compatibility before media integration |

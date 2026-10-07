@@ -52,11 +52,17 @@ int main() {
     const auto message = syzygy::pairing_message(std::string(32, 'n'), "desktop-1", "client-certificate");
     const auto proof = syzygy::pairing_proof(host_key, message);
     require(proof.size() == 64 && syzygy::verify_pairing_proof(host_key, message, proof), "valid host-key proof");
-    const auto confirmation = syzygy::pairing_confirmation(host_key, message);
-    require(confirmation.size() == 64 && syzygy::verify_pairing_confirmation(host_key, message, confirmation),
+    const std::string server_certificate("test server certificate");
+    const auto confirmation = syzygy::pairing_confirmation(host_key, message, server_certificate);
+    require(confirmation.size() == 64 && syzygy::verify_pairing_confirmation(
+        host_key, message, server_certificate, confirmation),
       "valid host confirmation");
-    require(!syzygy::verify_pairing_confirmation(std::string(48, 'b'), message, confirmation),
+    require(!syzygy::verify_pairing_confirmation(
+        std::string(48, 'b'), message, server_certificate, confirmation),
       "reject confirmation from another host key");
+    require(!syzygy::verify_pairing_confirmation(
+        host_key, message, "modified server certificate", confirmation),
+      "reject confirmation for a substituted server certificate");
     require(!syzygy::verify_pairing_proof(std::string(48, 'b'), message, proof), "reject proof from another host key");
     require(!syzygy::verify_pairing_proof(host_key, message + "x", proof), "reject modified pairing transcript");
     require(syzygy::pairing_message(std::string(32, 'n'), "desktop-2", "client-certificate") != message,
