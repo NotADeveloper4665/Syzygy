@@ -10,7 +10,6 @@ permissions:
 jobs:
   linux:
     runs-on: ubuntu-24.04
-    container: fedora:44
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -21,12 +20,11 @@ jobs:
           node-version: '22'
       - name: Install build dependencies
         run: |
-          dnf install -y @development-tools cmake ninja-build pkgconf-pkg-config rpm-build nodejs npm git curl wget which \
-            libcap-devel libcurl-devel libdrm-devel libevdev-devel libgudev-devel libnotify-devel libva-devel \
-            libX11-devel libxcb-devel libXcursor-devel libXfixes-devel libXi-devel libXinerama-devel \
-            libXrandr-devel libXtst-devel mesa-libGL-devel mesa-libgbm-devel miniupnpc-devel numactl-devel \
-            openssl-devel opus-devel pulseaudio-libs-devel systemd-udev systemd-rpm-macros desktop-file-utils \
-            libappstream-glib
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config rpm libcap-dev libcurl4-openssl-dev \
+            libdrm-dev libevdev-dev libgbm-dev libminiupnpc-dev libnotify-dev libnuma-dev libopus-dev \
+            libpulse-dev libssl-dev libva-dev libwayland-dev libx11-dev libxcb-shm0-dev libxcb-xfixes0-dev \
+            libxcb1-dev libxfixes-dev libxrandr-dev libxtst-dev
       - name: Test CLI and protected key storage
         run: |
           bash -n scripts/install-syzygy.sh
@@ -44,12 +42,29 @@ jobs:
             -DSUNSHINE_ASSETS_DIR_DEF=assets -DSUNSHINE_EXECUTABLE_PATH=/usr/bin/syzygy
           cmake --build build --parallel 2
       - name: Build RPM package
-        run: cpack --config build/CPackConfig.cmake -G RPM
+        env:
+          RELEASE_VERSION: '0.0.2'
+        run: |
+          docker run --rm -e BUILD_VERSION="$RELEASE_VERSION" -e BRANCH=main -e COMMIT="$GITHUB_SHA" \
+            -v "$GITHUB_WORKSPACE:/src" -w /src fedora:44 bash -euc '
+              dnf install -y @development-tools cmake ninja-build pkgconf-pkg-config rpm-build nodejs npm git curl wget which \
+                libcap-devel libcurl-devel libdrm-devel libevdev-devel libgudev-devel libnotify-devel libva-devel \
+                libX11-devel libxcb-devel libXcursor-devel libXfixes-devel libXi-devel libXinerama-devel \
+                libXrandr-devel libXtst-devel mesa-libGL-devel mesa-libgbm-devel miniupnpc-devel numactl-devel \
+                openssl-devel opus-devel pulseaudio-libs-devel systemd-udev systemd-rpm-macros desktop-file-utils \
+                libappstream-glib
+              cmake -S /src -B /src/build-fedora -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_INSTALL_PREFIX=/usr -DSUNSHINE_ENABLE_CUDA=OFF -DSUNSHINE_ENABLE_TRAY=OFF -DBUILD_TESTS=OFF \
+                -DSUNSHINE_ASSETS_DIR_DEF=assets -DSUNSHINE_EXECUTABLE_PATH=/usr/bin/syzygy
+              cmake --build /src/build-fedora --parallel 2
+              cpack --config /src/build-fedora/CPackConfig.cmake -G RPM
+              dnf install -y /src/build-fedora/cpack_artifacts/*.rpm
+            '
       - name: Upload RPM build artifact
         uses: actions/upload-artifact@v4
         with:
           name: syzygy-rpm
-          path: build/cpack_artifacts/*.rpm
+          path: build-fedora/cpack_artifacts/*.rpm
           if-no-files-found: error
       - name: Publish versioned GitHub release
         if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'release v0.0.2'))
@@ -59,7 +74,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: Syzygy ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v0.0.2' }}
           generate_release_notes: true
-          files: build/cpack_artifacts/*.rpm
+          files: build-fedora/cpack_artifacts/*.rpm
       - name: Check standalone key output without starting streaming
         working-directory: build
         run: |
