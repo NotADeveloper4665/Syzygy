@@ -21,26 +21,13 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config rpm libcap-dev libcurl4-openssl-dev \
-            libdrm-dev libevdev-dev libgbm-dev libminiupnpc-dev libnotify-dev libnuma-dev libopus-dev \
-            libpulse-dev libssl-dev libva-dev libwayland-dev libx11-dev libxcb-shm0-dev libxcb-xfixes0-dev \
-            libxcb1-dev libxfixes-dev libxrandr-dev libxtst-dev
+          sudo apt-get install -y build-essential libssl-dev
       - name: Test CLI and protected key storage
         run: |
           bash -n scripts/install-syzygy.sh
           g++ -std=c++17 -Wall -Wextra -Werror -Isrc src/syzygy/cli.cpp src/syzygy/key_store.cpp src/syzygy/pairing_auth.cpp \
             tests/syzygy_smoke.cpp -lcrypto -pthread -o syzygy-smoke
           ./syzygy-smoke
-      - name: Configure and build host and compatibility web assets
-        env:
-          BRANCH: main
-          BUILD_VERSION: '0.0.2'
-        run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=/usr \
-            -DSUNSHINE_ENABLE_CUDA=OFF -DSUNSHINE_ENABLE_TRAY=OFF -DBUILD_TESTS=OFF \
-            -DSUNSHINE_ASSETS_DIR_DEF=assets -DSUNSHINE_EXECUTABLE_PATH=/usr/bin/syzygy
-          cmake --build build --parallel 2
       - name: Build RPM package
         env:
           RELEASE_VERSION: '0.0.2'
@@ -76,7 +63,7 @@ jobs:
           generate_release_notes: true
           files: build-fedora/cpack_artifacts/*.rpm
       - name: Check standalone key output without starting streaming
-        working-directory: build
+        working-directory: build-fedora
         run: |
           export XDG_CONFIG_HOME="$(mktemp -d)"
           trap 'rm -rf "$XDG_CONFIG_HOME"' EXIT
@@ -94,7 +81,7 @@ jobs:
           print('PASS: standalone key output, persistence, and redaction')
           PY
       - name: Archive development binary and runtime assets
-        run: tar -C build -czhf syzygy-linux-x86_64-development.tar.gz syzygy assets
+        run: tar -C build-fedora -czhf syzygy-linux-x86_64-development.tar.gz syzygy assets
       - uses: actions/upload-artifact@v4
         with:
           name: Syzygy-Linux-x86_64-development
