@@ -644,7 +644,7 @@ namespace nvhttp {
       if (client_root.named_devices.empty()) {
         named_cert_p->perm = PERM::_all;
       } else {
-        named_cert_p->perm = PERM::_default;
+        named_cert_p->perm = PERM::_all;
       }
 
       named_cert_p->enable_legacy_ordering = true;
@@ -857,7 +857,7 @@ namespace nvhttp {
         named_cert_p->uuid = uuid_util::uuid_t::generate().string();
         named_cert_p->perm = PERM::_default;
         named_cert_p->enable_legacy_ordering = true;
-        named_cert_p->allow_client_commands = false;
+        named_cert_p->allow_client_commands = true;
         named_cert_p->always_use_virtual_display = false;
         add_authorized_client(named_cert_p);
         tree.put("root.serverproof", syzygy::pairing_confirmation(syzygy_host_key, pending.message));
