@@ -8,7 +8,7 @@ Syzygy is a streaming host configured through the CLI. Upstream source history, 
 ./syzygy -s -auto
 ```
 
-`-s` starts the host. `-auto` clears saved encoder and capture overrides so the host probes the available backends on this machine; it is useful when moving the configuration between systems or recovering from an invalid saved option such as `capture=kwin`. Without `-auto`, saved configuration is respected. For a manual encoder override, use `-nvec` (or `-nvenc`), `-vaapi`, or `-software`; select only one. `-h264` disables HEVC and AV1 advertisement. The legacy `-p` still toggles UPnP.
+`-s` starts the host. `-auto` clears saved encoder and capture overrides so the host probes the available backends on this machine; combine it with `-nvec` (or `-nvenc`), `-vaapi`, or `-software` to auto-detect capture while forcing an encoder. This is useful when moving configuration between systems or recovering from an invalid saved option such as `capture=kwin`. Without `-auto`, saved capture configuration is respected. `-h264` disables HEVC and AV1 advertisement. The legacy `-p` still toggles UPnP.
 
 `-psk` loads or generates a persistent 48-character random hex key and prints only that key to stdout. With `-s`, startup logs go to stderr; without `-s`, the command exits after printing. Handle this output as a secret. It is not placed in normal logs.
 

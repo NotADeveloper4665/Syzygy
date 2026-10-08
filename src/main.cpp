@@ -184,6 +184,17 @@ int main(int argc, char *argv[]) {
     return config_result < 0 ? 2 : 0;
   }
 
+  if (cli.automatic) {
+    // Clear stored manual backend selections after parsing the saved configuration.
+    // Empty CLI values are rejected by the legacy config parser, so apply this mode directly.
+    if (!cli.encoder_override) {
+      config::video.encoder.clear();
+      config::modified_config_settings["encoder"] = "";
+    }
+    config::video.capture.clear();
+    config::modified_config_settings["capture"] = "";
+  }
+
   if (cli.start || cli.print_key) {
 #ifdef _WIN32
     if (cli.print_key) {

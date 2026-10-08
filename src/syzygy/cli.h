@@ -8,6 +8,8 @@ namespace syzygy {
     std::vector<std::string> arguments;
     bool start = false;
     bool print_key = false;
+    bool automatic = false;
+    bool encoder_override = false;
   };
 
   // Preserve Apollo's argument grammar while translating Syzygy shortcuts.

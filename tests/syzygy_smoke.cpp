@@ -43,10 +43,13 @@ int main() {
     require(parse({"syzygy", "-vaapi"}).arguments.back() == "encoder=vaapi", "VA-API encoder option");
     require(parse({"syzygy", "-software"}).arguments.back() == "encoder=software", "software encoder option");
     const auto automatic = parse({"syzygy", "-s", "-auto", "encoder=vaapi", "capture=kwin"});
-    require(automatic.start && automatic.arguments == std::vector<std::string>({
-      "syzygy", "encoder=vaapi", "capture=kwin", "encoder=", "capture="}),
-      "automatic mode must override stale encoder and capture settings");
-    rejects([] { parse({"syzygy", "-auto", "-nvenc"}); }, "automatic mode cannot be combined with an encoder override");
+    require(automatic.start && automatic.automatic && !automatic.encoder_override && automatic.arguments == std::vector<std::string>({
+      "syzygy", "encoder=vaapi", "capture=kwin"}),
+      "automatic mode must be represented without invalid empty config arguments");
+    const auto automatic_vaapi = parse({"syzygy", "-s", "-auto", "-vaapi"});
+    require(automatic_vaapi.start && automatic_vaapi.automatic && automatic_vaapi.encoder_override
+      && automatic_vaapi.arguments == std::vector<std::string>({"syzygy", "encoder=vaapi"}),
+      "automatic capture selection can be combined with a forced VA-API encoder");
     rejects([] { parse({"syzygy", "-nvec", "-software"}); }, "conflicting encoder flags must fail");
     const std::vector<std::string> legacy {"syzygy", "--creds", "test-user", "-psk"};
     auto command = parse(legacy);
