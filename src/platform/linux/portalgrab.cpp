@@ -38,6 +38,9 @@ namespace {
   constexpr int MAX_DMABUF_FORMATS = 200;
   constexpr int MAX_DMABUF_MODIFIERS = 200;
 
+  using query_dmabuf_formats_fn = EGLBoolean (*)(EGLDisplay, EGLint, EGLint *, EGLint *);
+  using query_dmabuf_modifiers_fn = EGLBoolean (*)(EGLDisplay, EGLint, EGLint, EGLuint64KHR *, EGLBoolean *, EGLint *);
+
   // Portal configuration constants
   constexpr uint32_t SOURCE_TYPE_MONITOR = 1;
   constexpr uint32_t CURSOR_MODE_EMBEDDED = 2;
@@ -1059,10 +1062,10 @@ namespace portal {
       return 0;
     }
 
-    void query_dmabuf_formats(EGLDisplay egl_display) {
+    void query_dmabuf_formats(EGLDisplay egl_display, query_dmabuf_formats_fn query_formats, query_dmabuf_modifiers_fn query_modifiers) {
       EGLint num_dmabuf_formats = 0;
       std::array<EGLint, MAX_DMABUF_FORMATS> dmabuf_formats = {0};
-      eglQueryDmaBufFormatsEXT(egl_display, MAX_DMABUF_FORMATS, dmabuf_formats.data(), &num_dmabuf_formats);
+      query_formats(egl_display, MAX_DMABUF_FORMATS, dmabuf_formats.data(), &num_dmabuf_formats);
 
       if (num_dmabuf_formats > MAX_DMABUF_FORMATS) {
         BOOST_LOG(warning) << "Some DMA-BUF formats are being ignored"sv;
@@ -1077,7 +1080,7 @@ namespace portal {
         EGLint num_modifiers = 0;
         std::array<EGLuint64KHR, MAX_DMABUF_MODIFIERS> mods = {0};
         EGLBoolean external_only;
-        eglQueryDmaBufModifiersEXT(egl_display, dmabuf_formats[i], MAX_DMABUF_MODIFIERS, mods.data(), &external_only, &num_modifiers);
+        query_modifiers(egl_display, dmabuf_formats[i], MAX_DMABUF_MODIFIERS, mods.data(), &external_only, &num_modifiers);
 
         if (num_modifiers > MAX_DMABUF_MODIFIERS) {
           BOOST_LOG(warning) << "Some DMA-BUF modifiers are being ignored"sv;
@@ -1132,8 +1135,10 @@ namespace portal {
         }
       }
 
-      if (eglQueryDmaBufFormatsEXT && eglQueryDmaBufModifiersEXT) {
-        query_dmabuf_formats(egl_display.get());
+      auto query_formats = reinterpret_cast<query_dmabuf_formats_fn>(eglGetProcAddress("eglQueryDmaBufFormatsEXT"));
+      auto query_modifiers = reinterpret_cast<query_dmabuf_modifiers_fn>(eglGetProcAddress("eglQueryDmaBufModifiersEXT"));
+      if (query_formats && query_modifiers) {
+        query_dmabuf_formats(egl_display.get(), query_formats, query_modifiers);
       }
 
       return 0;
