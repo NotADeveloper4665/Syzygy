@@ -66,29 +66,29 @@ install_dependencies() {
       as_root apt-get update
       as_root apt-get install -y build-essential cmake ninja-build pkg-config git curl nodejs npm \
         libcap-dev libcurl4-openssl-dev libdrm-dev libevdev-dev libgbm-dev libminiupnpc-dev \
-        libnotify-dev libnuma-dev libopus-dev libpulse-dev libssl-dev libva-dev libwayland-dev \
+        libglib2.0-dev libnotify-dev libnuma-dev libopus-dev libpipewire-0.3-dev libpulse-dev libssl-dev libva-dev libwayland-dev \
         libx11-dev libxcb-shm0-dev libxcb-xfixes0-dev libxcb1-dev libxfixes-dev libxrandr-dev libxtst-dev
       ;;
     dnf)
       as_root dnf install -y gcc gcc-c++ make cmake ninja-build pkgconf-pkg-config git curl nodejs npm \
-        libcap-devel libcurl-devel libdrm-devel libevdev-devel mesa-libgbm-devel miniupnpc-devel \
+        glib2-devel pipewire-devel libcap-devel libcurl-devel libdrm-devel libevdev-devel mesa-libgbm-devel miniupnpc-devel \
         libnotify-devel numactl-devel opus-devel pulseaudio-libs-devel openssl-devel libva-devel \
         wayland-devel libX11-devel libxcb-devel libXfixes-devel libXrandr-devel libXtst-devel
       ;;
     zypper)
       as_root zypper --non-interactive install --no-recommends gcc gcc-c++ make cmake ninja pkg-config git curl nodejs npm \
-        libcap-devel libcurl-devel libdrm-devel libevdev-devel Mesa-libgbm-devel libminiupnpc-devel \
+        glib2-devel pipewire-devel libcap-devel libcurl-devel libdrm-devel libevdev-devel Mesa-libgbm-devel libminiupnpc-devel \
         libnotify-devel libnuma-devel libopus-devel libpulse-devel libopenssl-devel libva-devel \
         wayland-devel libX11-devel libxcb-devel libXfixes-devel libXrandr-devel libXtst-devel
       ;;
     pacman)
       as_root pacman -Sy --needed --noconfirm base-devel cmake ninja pkgconf git curl nodejs npm \
-        libcap curl libdrm libevdev mesa miniupnpc libnotify numactl opus libpulse openssl libva \
+        glib2 pipewire libcap curl libdrm libevdev mesa miniupnpc libnotify numactl opus libpulse openssl libva \
         wayland libx11 libxcb libxfixes libxrandr libxtst
       ;;
     apk)
       as_root apk add --no-cache build-base cmake ninja pkgconf git curl nodejs npm linux-headers \
-        libcap-dev curl-dev libdrm-dev libevdev-dev mesa-dev miniupnpc-dev libnotify-dev numactl-dev \
+        glib-dev pipewire-dev libcap-dev curl-dev libdrm-dev libevdev-dev mesa-dev miniupnpc-dev libnotify-dev numactl-dev \
         opus-dev pulseaudio-dev openssl-dev libva-dev wayland-dev libx11-dev libxcb-dev libxfixes-dev \
         libxrandr-dev libxtst-dev
       ;;

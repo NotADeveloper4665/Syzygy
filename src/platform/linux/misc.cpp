@@ -876,6 +876,9 @@ std::string get_local_ip_for_gateway() {
 #ifdef SUNSHINE_BUILD_X11
       X11,  ///< X11
 #endif
+#ifdef SUNSHINE_BUILD_PORTAL
+      PORTAL,  ///< XDG desktop portal
+#endif
       MAX_FLAGS  ///< The maximum number of flags
     };
   }  // namespace source
@@ -918,6 +921,15 @@ std::string get_local_ip_for_gateway() {
   }
 #endif
 
+#ifdef SUNSHINE_BUILD_PORTAL
+  std::vector<std::string> portal_display_names();
+  std::shared_ptr<display_t> portal_display(mem_type_e hwdevice_type, const std::string &display_name, const video::config_t &config);
+
+  bool verify_portal() {
+    return !portal_display_names().empty();
+  }
+#endif
+
   std::vector<std::string> display_names(mem_type_e hwdevice_type) {
 #ifdef SUNSHINE_BUILD_CUDA
     // display using NvFBC only supports mem_type_e::cuda
@@ -928,6 +940,11 @@ std::string get_local_ip_for_gateway() {
 #ifdef SUNSHINE_BUILD_WAYLAND
     if (sources[source::WAYLAND]) {
       return wl_display_names();
+    }
+#endif
+#ifdef SUNSHINE_BUILD_PORTAL
+    if (sources[source::PORTAL]) {
+      return portal_display_names();
     }
 #endif
 #ifdef SUNSHINE_BUILD_DRM
@@ -963,6 +980,12 @@ std::string get_local_ip_for_gateway() {
     if (sources[source::WAYLAND]) {
       BOOST_LOG(info) << "Screencasting with Wayland's protocol"sv;
       return wl_display(hwdevice_type, display_name, config);
+    }
+#endif
+#ifdef SUNSHINE_BUILD_PORTAL
+    if (sources[source::PORTAL]) {
+      BOOST_LOG(info) << "Screencasting with XDG desktop portal (PipeWire)"sv;
+      return portal_display(hwdevice_type, display_name, config);
     }
 #endif
 #ifdef SUNSHINE_BUILD_DRM
@@ -1017,6 +1040,13 @@ std::string get_local_ip_for_gateway() {
       if (verify_wl()) {
         sources[source::WAYLAND] = true;
       }
+    }
+#endif
+#ifdef SUNSHINE_BUILD_PORTAL
+    // Prefer the session-authorized portal over KMS on Wayland. KMS needs
+    // elevated privileges, while the portal asks the compositor for access.
+    if (((config::video.capture.empty() && window_system == window_system_e::WAYLAND) || config::video.capture == "portal") && verify_portal()) {
+      sources[source::PORTAL] = true;
     }
 #endif
 #ifdef SUNSHINE_BUILD_DRM

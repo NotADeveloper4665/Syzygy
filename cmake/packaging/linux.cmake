@@ -52,11 +52,13 @@ set(CPACK_DEBIAN_PACKAGE_DEPENDS "\
             libdrm2, \
             libgbm1, \
             libevdev2, \
+            libglib2.0-0, \
             libnuma1, \
             libopus0, \
             libpulse0, \
             libva2, \
             libva-drm2, \
+            libpipewire-0.3-0, \
             libwayland-client0, \
             libx11-6, \
             miniupnpc, \
@@ -67,6 +69,7 @@ set(CPACK_RPM_PACKAGE_REQUIRES "\
             libcurl >= 7.0, \
             libdrm >= 2.4.97, \
             libevdev >= 1.5.6, \
+            glib2, \
             libopusenc >= 0.2.1, \
             libva >= 2.14.0, \
             libwayland-client >= 1.20.0, \
@@ -76,6 +79,7 @@ set(CPACK_RPM_PACKAGE_REQUIRES "\
             numactl-libs >= 2.0.14, \
             openssl >= 3.0.2, \
             pulseaudio-libs >= 10.0, \
+            pipewire-libs, \
             which >= 2.21")
 
 if(NOT BOOST_USE_STATIC)

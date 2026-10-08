@@ -2026,7 +2026,8 @@ editing the `conf` file in a text editor. Use the examples as reference.
     <tr>
         <td>Default</td>
         <td colspan="2">Automatic.
-            Sunshine will use the first capture method available in the order of the table above.</td>
+            Syzygy will use the first capture method available. On Wayland, the XDG desktop portal is preferred
+            when available.</td>
     </tr>
     <tr>
         <td>Example</td>
@@ -2035,7 +2036,7 @@ editing the `conf` file in a text editor. Use the examples as reference.
             @endcode</td>
     </tr>
     <tr>
-        <td rowspan="6">Choices</td>
+        <td rowspan="7">Choices</td>
         <td>nvfbc</td>
         <td>Use NVIDIA Frame Buffer Capture to capture direct to GPU memory. This is usually the fastest method for
             NVIDIA cards. NvFBC does not have native Wayland support and does not work with XWayland.
@@ -2045,6 +2046,13 @@ editing the `conf` file in a text editor. Use the examples as reference.
         <td>wlr</td>
         <td>Capture for wlroots based Wayland compositors via wlr-screencopy-unstable-v1. It is possible to capture
             virtual displays in e.g. Hyprland using this method.
+            @note{Applies to Linux only.}</td>
+    </tr>
+    <tr>
+        <td>portal</td>
+        <td>Capture through the XDG desktop portal and PipeWire. This is the recommended path for KDE Plasma Wayland
+            and other compositors that do not provide wlroots screencopy protocols. The desktop may ask you to approve
+            screen capture the first time Syzygy starts.
             @note{Applies to Linux only.}</td>
     </tr>
     <tr>
