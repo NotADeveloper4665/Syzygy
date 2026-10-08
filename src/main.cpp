@@ -25,6 +25,10 @@
 #include "syzygy/cli.h"
 #include "syzygy/key_store.h"
 
+#ifndef _WIN32
+  #include <unistd.h>
+#endif
+
 #ifdef _WIN32
   #include "platform/windows/misc.h"
   #include "platform/windows/virtual_display.h"
@@ -195,7 +199,7 @@ int main(int argc, char *argv[]) {
     config::modified_config_settings["capture"] = "";
   }
 
-  if (cli.start || cli.print_key) {
+  if (config::sunshine.cmd.name.empty() || cli.print_key) {
 #ifdef _WIN32
     if (cli.print_key) {
       std::cerr << "Syzygy: host-key management is not available on Windows until owner-only ACL support is implemented.\n";
@@ -204,10 +208,15 @@ int main(int argc, char *argv[]) {
 #else
     try {
       const auto key = syzygy::load_or_create_key(platf::appdata() / "syzygy");
-      if (cli.start) nvhttp::set_host_key(key);
+      if (!cli.print_key || cli.start) nvhttp::set_host_key(key);
       if (cli.print_key) {
         std::cerr << "Sensitive host key: keep this output private. Share it only with trusted clients.\n";
         key_stdout << key << std::endl;
+      } else if (isatty(STDOUT_FILENO)) {
+        // Show the passkey to the interactive operator, never to file/journal logs.
+        key_stdout << "Syzygy pairing passkey: " << key << "\n"
+                   << "In Eclipse, select this host and choose Syzygy passkey. "
+                   << "Anyone with this passkey receives full host access.\n" << std::flush;
       }
     } catch (const std::exception &error) {
       std::cerr << "Syzygy: " << error.what() << std::endl;

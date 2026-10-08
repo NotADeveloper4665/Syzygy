@@ -30,7 +30,7 @@ jobs:
           ./syzygy-smoke
       - name: Build RPM package
         env:
-          RELEASE_VERSION: '0.0.5'
+          RELEASE_VERSION: '0.0.6'
         run: |
           docker run --rm -e BUILD_VERSION="$RELEASE_VERSION" -e BRANCH=main -e COMMIT="$GITHUB_SHA" \
             -v "$GITHUB_WORKSPACE:/src" -w /src fedora:44 bash -euc '
@@ -48,6 +48,7 @@ jobs:
               cpack --config /src/build-fedora/CPackConfig.cmake -G RPM
               dnf install -y /src/build-fedora/cpack_artifacts/*.rpm
               python3 /src/scripts/check-installed-assets.py
+              python3 /src/scripts/check-passkey-pairing.py
               mkdir -p /src/installed-layout/usr/bin /src/installed-layout/usr/share
               cp /usr/bin/syzygy /src/installed-layout/usr/bin/
               cp -a /usr/share/syzygy /src/installed-layout/usr/share/
@@ -61,12 +62,12 @@ jobs:
           path: build-fedora/cpack_artifacts/*.rpm
           if-no-files-found: error
       - name: Publish versioned GitHub release
-        if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'release v0.0.5'))
+        if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'release v0.0.6'))
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v0.0.5' }}
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v0.0.6' }}
           target_commitish: ${{ github.sha }}
-          name: Syzygy ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v0.0.5' }}
+          name: Syzygy ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v0.0.6' }}
           generate_release_notes: true
           files: build-fedora/cpack_artifacts/*.rpm
       - name: Archive installed binary and runtime assets

@@ -274,13 +274,13 @@ namespace logging {
       << "    --creds username password | set user credentials for the Web manager"sv << std::endl
       << "    --version                 | print the version of Syzygy"sv << std::endl
       << "    Syzygy shortcuts (Linux)"sv << std::endl
-      << "        -s       | start the host and initialize its private key store"sv << std::endl
+      << "        -s       | start the host (passkey pairing is enabled on normal Linux startup)"sv << std::endl
       << "        -auto    | clear saved encoder/capture overrides and auto-detect both"sv << std::endl
       << "        -nvec    | select NVENC (-nvenc is also accepted)"sv << std::endl
       << "        -vaapi   | select VA-API; -software selects software encoding"sv << std::endl
       << "        -h264    | disable HEVC and AV1 advertisement"sv << std::endl
       << "        -psk     | print the persistent host key; exits unless -s is given"sv << std::endl
-      << "                 | key enrollment is not implemented in this preview"sv << std::endl
+      << "                 | enter this passkey in Eclipse to pair without a PIN"sv << std::endl
       << std::endl
       << "    flags"sv << std::endl
       << "        -0 | Read PIN from stdin"sv << std::endl

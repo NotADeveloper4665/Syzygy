@@ -839,27 +839,27 @@ namespace nvhttp {
           return;
         }
 
-        if (std::any_of(client_root.named_devices.begin(), client_root.named_devices.end(), [&](const auto &device) {
-              return device->cert == pending.certificate;
-            })) {
-          tree.put("root.<xmlattr>.status_code", 409);
-          tree.put("root.<xmlattr>.status_message", "This client certificate is already paired");
-          return;
-        }
-
-        auto named_cert_p = std::make_shared<crypto::named_cert_t>();
+        auto existing = std::find_if(client_root.named_devices.begin(), client_root.named_devices.end(),
+            [&](const auto &device) { return device->cert == pending.certificate; });
+        // A lost response must be retryable without adding a second device.
+        const bool newly_paired = existing == client_root.named_devices.end();
+        auto named_cert_p = newly_paired ? std::make_shared<crypto::named_cert_t>() : *existing;
         named_cert_p->name = pending.name;
         for (char& c : named_cert_p->name) {
           if (c == '(') c = '[';
           else if (c == ')') c = ']';
         }
         named_cert_p->cert = std::move(pending.certificate);
-        named_cert_p->uuid = uuid_util::uuid_t::generate().string();
+        if (newly_paired) named_cert_p->uuid = uuid_util::uuid_t::generate().string();
         named_cert_p->perm = PERM::_all;
         named_cert_p->enable_legacy_ordering = true;
         named_cert_p->allow_client_commands = true;
         named_cert_p->always_use_virtual_display = false;
-        add_authorized_client(named_cert_p);
+        if (newly_paired) add_authorized_client(named_cert_p);
+        else if (!config::sunshine.flags[config::flag::FRESH_STATE]) {
+          save_state();
+          load_state();
+        }
         const std::string server_certificate(conf_intern.servercert.begin(), conf_intern.servercert.end());
         tree.put("root.serverproof", syzygy::pairing_confirmation(syzygy_host_key, pending.message, server_certificate));
         tree.put("root.paired", 1);

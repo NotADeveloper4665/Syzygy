@@ -59,6 +59,7 @@ int main() {
     const std::string host_key(48, 'a');
     const auto message = syzygy::pairing_message(std::string(32, 'n'), "desktop-1", "client-certificate");
     const auto proof = syzygy::pairing_proof(host_key, message);
+    require(proof == "af4e3810806f0ca196fb292997b38d1a6d68fdbeeaba1be853ba1303725604a2", "independent client-compatible proof vector");
     require(proof.size() == 64 && syzygy::verify_pairing_proof(host_key, message, proof), "valid host-key proof");
     const std::string server_certificate("test server certificate");
     const auto confirmation = syzygy::pairing_confirmation(host_key, message, server_certificate);
