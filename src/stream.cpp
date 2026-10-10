@@ -1986,6 +1986,7 @@ namespace stream {
         return;
       }
 
+      BOOST_LOG(info) << "SYZYGY_SESSION_STOP " << reinterpret_cast<std::uintptr_t>(&session);
       session.shutdown_event->raise(true);
     }
 
@@ -1996,6 +1997,8 @@ namespace stream {
       if (already_stopping) {
         return;
       }
+
+      BOOST_LOG(info) << "SYZYGY_SESSION_STOP " << reinterpret_cast<std::uintptr_t>(&session);
 
       // reason: graceful termination
       std::uint32_t reason = 0x80030023;
@@ -2115,6 +2118,8 @@ namespace stream {
       session.audioThread = std::thread {audioThread, &session};
       session.videoThread = std::thread {videoThread, &session};
 
+      BOOST_LOG(info) << "SYZYGY_SESSION_START " << reinterpret_cast<std::uintptr_t>(&session)
+                      << " " << (session.config.monitor.videoFormat == 0 ? "H.264" : session.config.monitor.videoFormat == 1 ? "HEVC" : "AV1");
       session.state.store(state_e::RUNNING, std::memory_order_relaxed);
 
       // If this is the first session, invoke the platform callbacks
