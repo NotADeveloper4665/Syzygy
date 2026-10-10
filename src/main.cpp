@@ -5,6 +5,8 @@
 // standard includes
 #include <codecvt>
 #include <csignal>
+#include <cstdlib>
+#include <string_view>
 #include <fstream>
 #include <filesystem>
 #include <iostream>
@@ -28,6 +30,10 @@
 
 #ifndef _WIN32
   #include <unistd.h>
+#endif
+#ifdef __linux__
+  #include <sys/capability.h>
+  #include <sys/prctl.h>
 #endif
 
 #ifdef _WIN32
@@ -169,6 +175,20 @@ int main(int argc, char *argv[]) {
 #endif
     return 2;
   }
+#ifdef __linux__
+  if (const char *mode = std::getenv("SYZYGY_HEADLESS_SESSION"); mode && std::string_view(mode) == "1") {
+    // The RPM grants KMS capabilities. Native capture does not use them, and
+    // retaining them prevents KWin from identifying /proc/<pid>/exe for its
+    // executable permission check. Drop them before keys or sessions are loaded.
+    cap_t empty = cap_init();
+    const int result = empty ? cap_set_proc(empty) : -1;
+    if (empty) cap_free(empty);
+    if (result != 0 || prctl(PR_SET_DUMPABLE, 1, 0, 0, 0) != 0) {
+      std::cerr << "Cannot enter unprivileged headless capture mode.\n";
+      return 2;
+    }
+  }
+#endif
   // Keep explicit key output separate from config diagnostics and console logs.
   std::ostream key_stdout(std::cout.rdbuf());
   struct restore_stdout {

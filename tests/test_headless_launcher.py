@@ -35,7 +35,7 @@ class LauncherTests(unittest.TestCase):
             headless.install_permission(root, Path('/usr/bin/syzygy'))
             text = (root / 'data/applications/syzygy-headless.desktop').read_text()
             self.assertIn('Exec="/usr/bin/syzygy"', text)
-            self.assertIn('zkde_screencast_unstable_v1;org_kde_kwin_fake_input;', text)
+            self.assertIn('zkde_screencast_unstable_v1,org_kde_kwin_fake_input', text)
             with self.assertRaises(ValueError):
                 headless.install_permission(root, Path('/tmp/evil\nExec=other'))
 

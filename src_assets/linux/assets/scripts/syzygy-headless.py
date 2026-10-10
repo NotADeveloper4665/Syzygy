@@ -86,7 +86,7 @@ def install_permission(runtime, binary):
     (apps / 'syzygy-headless.desktop').write_text(
         '[Desktop Entry]\nType=Application\nName=Syzygy headless host\n'
         f'Exec={quoted}\nNoDisplay=true\n'
-        'X-KDE-Wayland-Interfaces=zkde_screencast_unstable_v1;org_kde_kwin_fake_input;\n')
+        'X-KDE-Wayland-Interfaces=zkde_screencast_unstable_v1,org_kde_kwin_fake_input\n')
 
 
 def desktop(binary, arguments):
