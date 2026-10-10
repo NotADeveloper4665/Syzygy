@@ -11,9 +11,9 @@ python3 - <<'PY'
 import os, pathlib, re, stat
 root = pathlib.Path(os.environ['XDG_CONFIG_HOME'])
 first = (root / 'key-first').read_bytes()
-assert re.fullmatch(rb'[0-9a-f]{48}\n', first), 'stdout must contain exactly one key'
+assert re.fullmatch(rb'[a-z]+(?: [a-z]+){5}\n', first), 'stdout must contain exactly one key'
 assert first == (root / 'key-second').read_bytes(), 'key must persist'
 assert first.strip() not in (root / 'diagnostics').read_bytes(), 'diagnostics must not reveal the key'
-assert stat.S_IMODE((root / 'sunshine/syzygy/syzygy.psk').stat().st_mode) == 0o600
+assert stat.S_IMODE((root / 'sunshine/syzygy/syzygy.phrase').stat().st_mode) == 0o600
 print('PASS: standalone key output, persistence, and redaction')
 PY

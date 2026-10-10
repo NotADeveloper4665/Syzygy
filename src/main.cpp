@@ -27,6 +27,7 @@
 #include "video.h"
 #include "syzygy/cli.h"
 #include "syzygy/key_store.h"
+#include "syzygy/phrase.h"
 
 #ifndef _WIN32
   #include <unistd.h>
@@ -271,14 +272,14 @@ int main(int argc, char *argv[]) {
 #else
     try {
       const auto key = syzygy::load_or_create_key(platf::appdata() / "syzygy");
-      if (!cli.print_key || cli.start) nvhttp::set_host_key(key);
+      if (!cli.print_key || cli.start) nvhttp::set_host_key(syzygy::phrase_key(key));
       if (cli.print_key) {
-        std::cerr << "Sensitive host key: keep this output private. Share it only with trusted clients.\n";
+        std::cerr << "Sensitive pairing phrase: keep this output private. Share it only with trusted clients.\n";
         key_stdout << key << std::endl;
       } else if (isatty(STDOUT_FILENO)) {
         // Show the passkey to the interactive operator, never to file/journal logs.
-        key_stdout << "Syzygy pairing passkey: " << key << "\n"
-                   << "In Eclipse, select this host and choose Syzygy passkey. "
+        key_stdout << "Syzygy pairing phrase: " << key << "\n"
+                   << "In Eclipse, select this host and choose Syzygy pairing phrase. "
                    << "Anyone with this passkey receives full host access.\n" << std::flush;
       }
     } catch (const std::exception &error) {

@@ -21,7 +21,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libssl-dev ripgrep kmod
+          sudo apt-get install -y build-essential libssl-dev libboost-dev libcurl4-openssl-dev ripgrep kmod
       - name: Prepare virtual DRM device for displayless capture tests
         run: |
           if ! sudo modprobe vgem; then
@@ -61,11 +61,13 @@ jobs:
           g++ -std=c++17 -Wall -Wextra -Werror -Isrc src/syzygy/cli.cpp src/syzygy/key_store.cpp src/syzygy/pairing_auth.cpp \
             tests/syzygy_smoke.cpp -lcrypto -pthread -o syzygy-smoke
           ./syzygy-smoke
+          g++ -std=c++17 -Wall -Wextra -Werror -Isrc tests/test_tailscale_pairing.cpp -lcurl -o tailscale-pairing-smoke
+          ./tailscale-pairing-smoke
           g++ -std=c++17 -Wall -Wextra -Werror -Isrc tests/test_pipewire_memory.cpp -o pipewire-memory-smoke
           ./pipewire-memory-smoke
       - name: Build RPM package
         env:
-          RELEASE_VERSION: '0.0.7'
+          RELEASE_VERSION: '0.0.8'
         run: |
           docker run --rm --cap-add SYS_NICE --device /dev/dri:/dev/dri -e CI=1 -e SYZYGY_CI_VGEM_CARD="$VGEM_DRM_CARD" -e BUILD_VERSION="$RELEASE_VERSION" -e BRANCH=main -e COMMIT="$GITHUB_SHA" \
             -v "$GITHUB_WORKSPACE:/src" -w /src fedora:44 bash -euc '

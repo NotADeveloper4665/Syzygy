@@ -16,6 +16,8 @@ namespace syzygy {
         return {{argv[0], "--help"}, false, false};
       } else if (arg == "-s") {
         options.start = true;
+      } else if (arg == "-tails") {
+        options.tails = true;
       } else if (arg == "-psk") {
         options.print_key = true;
       } else if (arg == "-h264") {
@@ -35,7 +37,7 @@ namespace syzygy {
         options.encoder_override = true;
       } else if (arg.substr(0, 2) == "--") {
         // Apollo commands consume the rest of argv verbatim (including passwords).
-        if (options.print_key || options.start || h264 || options.automatic || options.virtual_display || options.headless || !encoder.empty()) {
+        if (options.print_key || options.start || h264 || options.automatic || options.virtual_display || options.headless || options.tails || !encoder.empty()) {
           throw std::invalid_argument("Use Syzygy shortcuts separately from --commands");
         }
         for (; i < argc; ++i) {
@@ -47,6 +49,7 @@ namespace syzygy {
         options.arguments.emplace_back(arg);
       }
     }
+    if (options.tails) options.arguments.emplace_back("tails_pairing=enabled");
     if (options.headless) {
       if (options.virtual_display) throw std::invalid_argument("Use -headless separately from -virtual");
       for (const auto &arg : options.arguments) {

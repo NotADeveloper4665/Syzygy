@@ -13,6 +13,7 @@ namespace syzygy {
     bool capture_override = false;
     bool virtual_display = false;
     bool headless = false;
+    bool tails = false;
   };
 
   // Preserve Apollo's argument grammar while translating Syzygy shortcuts.

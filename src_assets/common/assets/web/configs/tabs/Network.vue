@@ -15,6 +15,14 @@ const effectivePort = computed(() => +config.value?.port ?? defaultMoonlightPort
 
 <template>
   <div id="network" class="config-page">
+    <div class="mb-3">
+      <label for="tails_pairing" class="form-label">Automatically authorize same-tailnet devices</label>
+      <select id="tails_pairing" class="form-select" v-model="config.tails_pairing">
+        <option value="disabled">Disabled</option>
+        <option value="enabled">Enabled</option>
+      </select>
+      <div class="form-text">Linux: verify devices through the local Tailscale daemon and grant full host permissions without a pairing phrase. Externally shared devices are excluded. Restart Syzygy after changing this setting. Disabling this option prevents new automatic pairings; remove existing devices separately to revoke their access.</div>
+    </div>
     <!-- UPnP -->
     <Checkbox class="mb-3"
               id="upnp"

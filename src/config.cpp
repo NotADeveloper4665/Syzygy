@@ -49,6 +49,7 @@ using namespace std::literals;
 #define APPS_JSON_PATH platf::appdata().string() + "/apps.json"
 
 namespace config {
+  bool tails_pairing = false;
 
   namespace nv {
 
@@ -1298,6 +1299,7 @@ namespace config {
     bool_f(vars, "system_tray", sunshine.system_tray);
     bool_f(vars, "hide_tray_controls", sunshine.hide_tray_controls);
     bool_f(vars, "enable_pairing", sunshine.enable_pairing);
+    bool_f(vars, "tails_pairing", tails_pairing);
     bool_f(vars, "enable_discovery", sunshine.enable_discovery);
     bool_f(vars, "envvar_compatibility_mode", sunshine.envvar_compatibility_mode);
     bool_f(vars, "notify_pre_releases", sunshine.notify_pre_releases);

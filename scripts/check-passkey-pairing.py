@@ -30,8 +30,10 @@ with tempfile.TemporaryDirectory(prefix='syzygy-pair-check-') as directory:
         env.pop(name, None)
     key_result = subprocess.run(['/usr/bin/syzygy', '-psk'], env=env,
                                 capture_output=True, text=True, check=True)
-    key = key_result.stdout.strip()
-    assert len(key) == 48
+    phrase = key_result.stdout.strip()
+    key = phrase
+    assert len(key.split()) == 6
+    key = hashlib.scrypt(key.encode(), salt=b'Syzygy pairing phrase v2', n=32768, r=8, p=1, maxmem=64*1024*1024, dklen=24).hex()
     clients = []
     for index in range(2):
         private, cert = root / f'client{index}.key', root / f'client{index}.crt'
@@ -64,7 +66,7 @@ with tempfile.TemporaryDirectory(prefix='syzygy-pair-check-') as directory:
 
     def start(log):
         # Deliberately omit -s: ordinary startup must enable passkey enrollment.
-        process = subprocess.Popen(['/usr/bin/syzygy', 'capture=x11', 'encoder=software', 'port=49199'],
+        process = subprocess.Popen(['/usr/bin/syzygy', 'capture=x11', 'encoder=software', 'tails_pairing=enabled', 'port=49199'],
                                    cwd=directory, env=env, stdout=log, stderr=subprocess.STDOUT)
         for attempt in range(100):
             try:
@@ -90,6 +92,8 @@ with tempfile.TemporaryDirectory(prefix='syzygy-pair-check-') as directory:
     with open(root / 'host.log', 'w+') as log:
         process = start(log)
         try:
+            denied = request('tails-denied', dict(syzygyphase='challenge', syzygytails='1', clientcert=clients[0][1].read_bytes().hex()))
+            assert denied.attrib['status_code'] == '403', 'Non-Tailscale socket was automatically authorized'
             uid, data, message, values = challenge(0)
             wrong = dict(values, syzygyproof=proof('b' * 48 if key != 'b' * 48 else 'a' * 48, message))
             assert request(uid, wrong).attrib['status_code'] == '401', 'Wrong key was accepted'
@@ -132,5 +136,6 @@ with tempfile.TemporaryDirectory(prefix='syzygy-pair-check-') as directory:
         finally:
             stop(process)
         log.seek(0)
-        assert key not in log.read(), 'Passkey leaked into unattended startup logs'
+        output = log.read()
+        assert phrase not in output and key not in output, 'Passkey leaked into unattended startup logs'
     print('PASS: wrong passkeys rejected, one-use challenges, two clients, host confirmation, TLS client auth, retry, persistence, and log redaction')

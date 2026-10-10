@@ -16,6 +16,7 @@
 #include "nvenc/nvenc_config.h"
 
 namespace config {
+  extern bool tails_pairing; // Explicitly trust verified same-tailnet devices.
   // track modified config options
   inline std::unordered_map<std::string, std::string> modified_config_settings;
 

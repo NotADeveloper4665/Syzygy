@@ -39,6 +39,8 @@
 #include "stream.h"
 #include "system_tray.h"
 #include "syzygy/pairing_auth.h"
+#include "syzygy/tailscale_pairing.h"
+#include "syzygy/pairing_limiter.h"
 #include "utility.h"
 #include "uuid.h"
 #include "video.h"
@@ -66,12 +68,16 @@ namespace nvhttp {
 
   crypto::cert_chain_t cert_chain;
   std::string syzygy_host_key;
+  syzygy::pairing_limiter pairing_attempts;
   struct host_key_pairing_t {
     std::string nonce;
     std::string message;
     std::string certificate;
     std::string name;
     std::chrono::steady_clock::time_point created;
+    bool tails = false;
+    std::string remote;
+    std::string local;
   };
   std::mutex host_key_pairings_mutex;
   std::unordered_map<std::string, host_key_pairing_t> host_key_pairings;
@@ -759,6 +765,19 @@ namespace nvhttp {
         return;
       }
       const auto now = std::chrono::steady_clock::now();
+      const bool tails = get_arg(args, "syzygytails") == "1";
+      const auto remote = net::addr_to_normalized_string(request->remote_endpoint().address());
+      const auto local = net::addr_to_normalized_string(request->local_endpoint().address());
+      if (syzygy_phase->second == "challenge"sv && !pairing_attempts.allow(remote, now)) {
+        tree.put("root.<xmlattr>.status_code", 429);
+        tree.put("root.<xmlattr>.status_message", "Pairing attempt limit reached; retry after one minute");
+        return;
+      }
+      if (tails && (!config::tails_pairing || !syzygy::tailscale_peer(remote, local))) {
+        tree.put("root.<xmlattr>.status_code", 403);
+        tree.put("root.<xmlattr>.status_message", "Same-tailnet authorization unavailable");
+        return;
+      }
       if (syzygy_phase->second == "challenge"sv) {
         const auto certificate_hex = get_arg(args, "clientcert");
         const auto device_name = get_arg(args, "devicename");
@@ -781,7 +800,7 @@ namespace nvhttp {
           return;
         }
         auto message = syzygy::pairing_message(nonce, uniqID, certificate);
-        host_key_pairing_t pending {nonce, message, std::move(certificate), device_name, now};
+        host_key_pairing_t pending {nonce, message, std::move(certificate), device_name, now, tails, remote, local};
         {
           std::lock_guard lock(host_key_pairings_mutex);
           for (auto it = host_key_pairings.begin(); it != host_key_pairings.end();) {
@@ -829,8 +848,9 @@ namespace nvhttp {
         const auto proof = get_arg(args, "syzygyproof");
         const auto signature_bytes = util::from_hex_vec(signature_hex, true);
         const std::string signature(signature_bytes.begin(), signature_bytes.end());
-        const bool valid = certificate == pending.certificate && client_cert &&
-            syzygy::verify_pairing_proof(syzygy_host_key, pending.message, proof) &&
+        const bool valid = tails == pending.tails && remote == pending.remote && local == pending.local &&
+            certificate == pending.certificate && client_cert &&
+            (tails || syzygy::verify_pairing_proof(syzygy_host_key, pending.message, proof)) &&
             crypto::verify256(client_cert, pending.message, signature);
         if (!valid) {
           tree.put("root.paired", 0);
@@ -861,7 +881,12 @@ namespace nvhttp {
           load_state();
         }
         const std::string server_certificate(conf_intern.servercert.begin(), conf_intern.servercert.end());
-        tree.put("root.serverproof", syzygy::pairing_confirmation(syzygy_host_key, pending.message, server_certificate));
+        if (tails) {
+          auto signed_message = pending.message + server_certificate;
+          tree.put("root.serversignature", util::hex_vec(crypto::sign256(crypto::pkey(conf_intern.pkey), signed_message), true));
+        } else {
+          tree.put("root.serverproof", syzygy::pairing_confirmation(syzygy_host_key, pending.message, server_certificate));
+        }
         tree.put("root.paired", 1);
         tree.put("root.<xmlattr>.status_code", 200);
         return;
@@ -1129,6 +1154,10 @@ namespace nvhttp {
     tree.put("root.ServerCodecModeSupport", codec_mode_flags);
 
     tree.put("root.PairStatus", pair_status);
+    tree.put("root.syzygy_phrase_version", 2);
+    tree.put("root.syzygy_tails_pairing", config::sunshine.enable_pairing && config::tails_pairing &&
+        syzygy::tailscale_peer(net::addr_to_normalized_string(request->remote_endpoint().address()),
+                              net::addr_to_normalized_string(request->local_endpoint().address())) ? 1 : 0);
 
     if constexpr (std::is_same_v<SunshineHTTPS, T>) {
       int current_appid = proc::proc.running();

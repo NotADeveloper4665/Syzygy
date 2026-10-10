@@ -2,6 +2,8 @@
 #include "syzygy/virtual_display.h"
 #include "syzygy/key_store.h"
 #include "syzygy/pairing_auth.h"
+#include "syzygy/phrase.h"
+#include "syzygy/pairing_limiter.h"
 
 #include <algorithm>
 #include <fstream>
@@ -83,6 +85,7 @@ int main() {
     require(command.arguments == legacy && !command.print_key, "command arguments must not become key flags");
     require(!parse({"syzygy", "-psk", "--help"}).print_key, "help must not print a key");
     require(parse({"syzygy", "-psk"}).arguments.size() == 1, "key flag must not toggle legacy UPnP");
+    require(syzygy::phrase_key("abacus abacus abacus abacus abacus abacus") == "9099aa9169cd7480309dc3cb217b62371c0486755779f78e", "independent scrypt phrase derivation vector");
     const std::string host_key(48, 'a');
     const auto message = syzygy::pairing_message(std::string(32, 'n'), "desktop-1", "client-certificate");
     const auto proof = syzygy::pairing_proof(host_key, message);
@@ -104,16 +107,31 @@ int main() {
     require(syzygy::pairing_message(std::string(32, 'n'), "desktop-2", "client-certificate") != message,
       "bind proof to the client identity");
 
+    require(parse({"syzygy", "-tails"}).tails, "Tailscale shortcut recognized");
+    require(parse({"syzygy", "-tails"}).arguments.back() == "tails_pairing=enabled", "Tailscale shortcut enables option");
+    syzygy::pairing_limiter limits;
+    const auto now = std::chrono::steady_clock::now();
+    for (int i = 0; i < 20; ++i) require(limits.allow("one", now), "initial attempts allowed");
+    require(!limits.allow("one", now), "per-source rate limit");
+    require(limits.allow("two", now), "independent source allowed");
+    require(limits.allow("one", now + std::chrono::minutes(1)), "rate limit expires");
     const auto directory = root / "private";
+    fs::create_directory(directory);
+    chmod(directory.c_str(), 0700);
+    std::ofstream(directory / "syzygy.psk") << std::string(48, 'a') << '\n';
+    chmod((directory / "syzygy.psk").c_str(), 0600);
     const auto first = syzygy::load_or_create_key(directory);
-    require(first.size() == 48, "192-bit key length");
+    require(!fs::exists(directory / "syzygy.psk"), "legacy key retired after phrase creation");
+    require(std::count(first.begin(), first.end(), ' ') == 5 && syzygy::known_phrase(first), "six independently generated words");
+    require(syzygy::normalize_phrase("  ABACUS-abacus ABACUS abacus abacus abacus ") == "abacus abacus abacus abacus abacus abacus", "phrase separators and case");
+    rejects([] { syzygy::normalize_phrase(std::string(48, 'a')); }, "old hex input must be rejected");
     require(first == syzygy::load_or_create_key(directory), "key must persist across restarts");
     struct stat state {};
-    require(stat((directory / "syzygy.psk").c_str(), &state) == 0 && (state.st_mode & 0777) == 0600,
+    require(stat((directory / "syzygy.phrase").c_str(), &state) == 0 && (state.st_mode & 0777) == 0600,
             "key file must have owner-only read/write permissions");
     require(stat(directory.c_str(), &state) == 0 && (state.st_mode & 0777) == 0700,
             "key directory must be private");
-    fs::remove(directory / "syzygy.psk");
+    fs::remove(directory / "syzygy.phrase");
     std::vector<std::future<std::string>> writers;
     for (int i = 0; i < 12; ++i) {
       writers.push_back(std::async(std::launch::async, [&] { return syzygy::load_or_create_key(directory); }));
@@ -125,17 +143,17 @@ int main() {
     }
     require(std::distance(fs::directory_iterator(directory), fs::directory_iterator()) == 1,
             "temporary key files must be cleaned up");
-    chmod((directory / "syzygy.psk").c_str(), 0644);
+    chmod((directory / "syzygy.phrase").c_str(), 0644);
     rejects([&] { syzygy::load_or_create_key(directory); }, "insecure key permissions must fail");
-    chmod((directory / "syzygy.psk").c_str(), 0600);
-    std::ofstream(directory / "syzygy.psk") << "invalid-key\n";
+    chmod((directory / "syzygy.phrase").c_str(), 0600);
+    std::ofstream(directory / "syzygy.phrase") << "invalid-key\n";
     rejects([&] { syzygy::load_or_create_key(directory); }, "malformed key must not be replaced");
-    fs::remove(directory / "syzygy.psk");
+    fs::remove(directory / "syzygy.phrase");
     std::ofstream(root / "external") << "unchanged\n";
-    fs::create_symlink(root / "external", directory / "syzygy.psk");
+    fs::create_symlink(root / "external", directory / "syzygy.phrase");
     rejects([&] { syzygy::load_or_create_key(directory); }, "key symlinks must fail");
-    fs::remove(directory / "syzygy.psk");
-    mkfifo((directory / "syzygy.psk").c_str(), 0600);
+    fs::remove(directory / "syzygy.phrase");
+    mkfifo((directory / "syzygy.phrase").c_str(), 0600);
     rejects([&] { syzygy::load_or_create_key(directory); }, "nonregular key files must fail without blocking");
     fs::create_directory_symlink(directory, root / "directory-link");
     rejects([&] { syzygy::load_or_create_key(root / "directory-link"); }, "directory symlinks must fail");

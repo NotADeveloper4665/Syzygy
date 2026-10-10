@@ -104,3 +104,40 @@ supports Fedora; other distributions need the listed runtime programs installed.
 GitHub CI builds the RPM and runs a real displayless KWin-to-PipeWire frame test
 with a virtual vgem DRM device and Mesa software rendering. Hardware-specific NVIDIA/Intel/AMD validation remains
 necessary before treating headless mode as production-ready.
+
+## Word pairing and automatic Tailscale permissions
+
+`syzygy -psk` prints the persistent six-word pairing phrase. Enter the host address
+and phrase in the updated Eclipse or Occultation client. Case is ignored; spaces
+and hyphens are interchangeable. The old hexadecimal enrollment key is retired
+on first phrase creation; previously paired device certificates keep working.
+
+To authorize devices in this host's own tailnet without entering a phrase:
+
+```sh
+/usr/bin/syzygy -s -auto -headless -tails -psk
+```
+
+Alternatively enable **Network → Automatically authorize same-tailnet devices**
+in the Syzygy Web UI and restart the host. This option is disabled by default.
+Linux requires the root-owned `/run/tailscale/tailscaled.sock` LocalAPI and a
+running Tailscale tunnel. The socket's daemon-reported source identity, local
+Tailscale destination address, current network map and tailnet DNS suffix must
+match. Shared-in/shared-to nodes, expired nodes, LAN connections, forwarded
+identity headers, userspace tunnels and unavailable identity checks are rejected.
+A successful automatic enrollment grants full permissions and saves the client
+certificate. Disabling the option prevents new automatic enrollment; revoke
+already paired devices separately if their access should also be removed.
+
+Generated phrases select six independent words with rejection sampling from a
+7,772-entry list, providing approximately 77.5 bits of entropy. scrypt derives the
+wire credential (`N=32768`, `r=8`, `p=1`, 24 output bytes); this does not increase
+the phrase's entropy. The signed challenge and authenticated server confirmation
+remain in use. This is not OPAQUE/PAKE: a captured phrase-pairing transcript can
+be used to test guesses offline with the scrypt cost. Use the generated phrase,
+not a manually chosen sentence. Challenge creation is limited to 20 per source
+and 200 globally per minute; failed proofs consume their challenge.
+
+Word list adapted from [EFF's Large Wordlist](https://www.eff.org/files/2016/07/18/eff_large_wordlist.txt),
+licensed [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/).
+Four internally hyphenated entries are omitted to make hyphens unambiguous separators.

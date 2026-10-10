@@ -1,4 +1,5 @@
 #include "key_store.h"
+#include "phrase.h"
 
 #include <array>
 #include <cerrno>
@@ -38,7 +39,7 @@ namespace syzygy {
     }
 
     std::string read_key(int directory) {
-      fd_guard key(openat(directory, "syzygy.psk", O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK));
+      fd_guard key(openat(directory, "syzygy.phrase", O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK));
       if (key.fd < 0) {
         if (errno == ENOENT) return {};
         throw std::runtime_error("Cannot open Syzygy key file safely");
@@ -48,7 +49,7 @@ namespace syzygy {
           (state.st_mode & 0777) != 0600) {
         throw std::runtime_error("Syzygy key file must be a private, owner-owned regular file");
       }
-      std::array<char, 50> buffer {};
+      std::array<char, 128> buffer {};
       size_t size = 0;
       while (size < buffer.size()) {
         auto count = read(key.fd, buffer.data() + size, buffer.size() - size);
@@ -57,12 +58,10 @@ namespace syzygy {
         if (count == 0) break;
         size += count;
       }
-      if (size == 49 && buffer[48] == '\n') --size;
-      if (size != 48) throw std::runtime_error("Invalid Syzygy key file format");
-      for (size_t i = 0; i < size; ++i) {
-        if (!((buffer[i] >= '0' && buffer[i] <= '9') || (buffer[i] >= 'a' && buffer[i] <= 'f'))) {
-          throw std::runtime_error("Invalid Syzygy key file format");
-        }
+      if (size && buffer[size - 1] == '\n') --size;
+      const std::string phrase(buffer.data(), size);
+      if (normalize_phrase(phrase) != phrase || !known_phrase(phrase)) {
+        throw std::runtime_error("Invalid Syzygy phrase file format");
       }
       return std::string(buffer.data(), size);
     }
@@ -83,9 +82,13 @@ namespace syzygy {
       throw std::runtime_error("Syzygy key directory must be private and owned by the current user");
     }
     auto existing = read_key(directory.fd);
-    if (!existing.empty()) return existing;
+    if (!existing.empty()) {
+      if (unlinkat(directory.fd, "syzygy.psk", 0) != 0 && errno != ENOENT)
+        throw std::runtime_error("Cannot retire legacy Syzygy key file");
+      return existing;
+    }
 
-    const auto value = random_hex() + "\n";
+    const auto value = random_phrase() + "\n";
     const auto temporary = ".syzygy.psk-" + random_hex();
     fd_guard key(openat(directory.fd, temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600));
     if (key.fd < 0) throw std::runtime_error("Cannot create Syzygy private key file");
@@ -99,7 +102,7 @@ namespace syzygy {
       }
       if (fsync(key.fd) != 0) throw std::runtime_error("Cannot flush Syzygy key file");
       // Atomic publication without replacing a key another process already created.
-      if (linkat(directory.fd, temporary.c_str(), directory.fd, "syzygy.psk", 0) != 0 && errno != EEXIST) {
+      if (linkat(directory.fd, temporary.c_str(), directory.fd, "syzygy.phrase", 0) != 0 && errno != EEXIST) {
         throw std::runtime_error("Cannot publish Syzygy key file");
       }
       if (unlinkat(directory.fd, temporary.c_str(), 0) != 0 || fsync(directory.fd) != 0) {
@@ -109,6 +112,9 @@ namespace syzygy {
       unlinkat(directory.fd, temporary.c_str(), 0);
       throw;
     }
+    // Retire the old credential after publishing the new phrase.
+    if (unlinkat(directory.fd, "syzygy.psk", 0) != 0 && errno != ENOENT)
+      throw std::runtime_error("Cannot retire legacy Syzygy key file");
     return read_key(directory.fd);
 #endif
   }
