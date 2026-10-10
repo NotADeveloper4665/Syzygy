@@ -9,6 +9,9 @@
 
 // local includes
 #include "inputtino_common.h"
+#ifdef SUNSHINE_BUILD_WAYLAND
+#include "../kwin_headless.h"
+#endif
 #include "inputtino_keyboard.h"
 #include "src/config.h"
 #include "src/logging.h"
@@ -149,6 +152,19 @@ namespace platf::keyboard {
   };
 
   void update(input_raw_t *raw, uint16_t modcode, bool release, uint8_t flags) {
+#ifdef SUNSHINE_BUILD_WAYLAND
+    if (syzygy::headless::active()) {
+      for (const auto &[linux_code, virtual_code] : key_mappings) {
+        if (virtual_code == (modcode & 0xff)) {
+          syzygy::headless::kwin_session::instance().send([&](auto *input) {
+            org_kde_kwin_fake_input_keyboard_key(input, linux_code, release ? 0 : 1);
+          });
+          break;
+        }
+      }
+      return;
+    }
+#endif
     if (raw->keyboard) {
       if (release) {
         (*raw->keyboard).release(modcode);
@@ -159,6 +175,23 @@ namespace platf::keyboard {
   }
 
   void unicode(input_raw_t *raw, char *utf8, int size) {
+#ifdef SUNSHINE_BUILD_WAYLAND
+    if (syzygy::headless::active()) {
+      const auto text = boost::locale::conv::utf_to_utf<char32_t>(utf8, utf8 + size);
+      syzygy::headless::kwin_session::instance().send([&](auto *input) {
+        if (wl_proxy_get_version(reinterpret_cast<wl_proxy *>(input)) < 6) {
+          BOOST_LOG(warning) << "Headless Unicode input requires KWin fake-input protocol version 6"sv;
+          return;
+        }
+        for (const auto code : text) {
+          uint32_t keysym = code <= 0xff ? code : (0x01000000u | code);
+          org_kde_kwin_fake_input_keyboard_keysym(input, keysym, 1);
+          org_kde_kwin_fake_input_keyboard_keysym(input, keysym, 0);
+        }
+      });
+      return;
+    }
+#endif
     if (raw->keyboard) {
       /* Reading input text as UTF-8 */
       auto utf8_str = boost::locale::conv::to_utf<wchar_t>(utf8, utf8 + size, "UTF-8");

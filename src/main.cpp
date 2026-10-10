@@ -6,6 +6,7 @@
 #include <codecvt>
 #include <csignal>
 #include <fstream>
+#include <filesystem>
 #include <iostream>
 
 // local includes
@@ -149,6 +150,23 @@ int main(int argc, char *argv[]) {
     cli = syzygy::parse_cli(argc, argv);
   } catch (const std::exception &error) {
     std::cerr << "Syzygy: " << error.what() << std::endl;
+    return 2;
+  }
+  if (cli.headless) {
+#ifdef __linux__
+    const auto launcher = std::filesystem::path(SUNSHINE_ASSETS_DIR) / "scripts/syzygy-headless.py";
+    std::vector<std::string> args {"python3", launcher.string(), "--binary",
+        std::filesystem::read_symlink("/proc/self/exe").string(), "--"};
+    // Forward the original shortcuts so -auto, -s and -psk retain their meaning.
+    for (int i = 1; i < argc; ++i) if (std::string(argv[i]) != "-headless") args.emplace_back(argv[i]);
+    std::vector<char *> exec_args;
+    for (auto &arg : args) exec_args.push_back(arg.data());
+    exec_args.push_back(nullptr);
+    execvp("python3", exec_args.data());
+    std::cerr << "Cannot start headless launcher: install Python 3 and the headless runtime dependencies.\n";
+#else
+    std::cerr << "-headless is supported only on Linux.\n";
+#endif
     return 2;
   }
   // Keep explicit key output separate from config diagnostics and console logs.

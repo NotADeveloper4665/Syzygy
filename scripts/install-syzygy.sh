@@ -17,6 +17,7 @@ builds and installs Syzygy, creates the current user's host key, and prints a
 start command that enables automatic capture and encoder selection.
 
 Environment:
+  SYZYGY_INSTALL_HEADLESS  Set to 1 to install the Fedora headless desktop runtime
   SYZYGY_BRANCH          Git branch or tag to build (default: main)
   SYZYGY_INSTALL_PREFIX  Install prefix (default: /usr/local)
 HELP
@@ -101,6 +102,13 @@ if [[ ! -r /etc/os-release ]]; then
 fi
 
 package_manager="$(detect_package_manager)"
+if [[ "${SYZYGY_INSTALL_HEADLESS:-0}" == 1 && "$package_manager" != dnf ]]; then
+  printf 'Automatic headless dependency installation currently supports Fedora/dnf. Install KWin, Plasma, Xwayland, PipeWire, WirePlumber, pactl and dbus-run-session on this distribution first.\n' >&2
+  exit 1
+fi
+if [[ "${SYZYGY_INSTALL_HEADLESS:-0}" == 1 ]]; then
+  as_root dnf install -y kwin-wayland plasma-workspace xorg-x11-server-Xwayland pipewire pipewire-pulseaudio wireplumber pulseaudio-utils dbus-daemon python3 mesa-dri-drivers
+fi
 printf 'Installing Syzygy build dependencies with %s...\n' "$package_manager"
 install_dependencies "$package_manager"
 
@@ -155,5 +163,9 @@ fi
 
 printf '\nHost access key (store it securely; it grants full host permissions):\n%s\n' "$key"
 printf '\nCapture and encoder selection: automatic\n'
-printf 'To start run: syzygy -s -auto\n'
+if [[ "${SYZYGY_INSTALL_HEADLESS:-0}" == 1 ]]; then
+  printf 'To start without a graphical login run: syzygy -s -auto -headless -psk\n'
+else
+  printf 'To start run: syzygy -s -auto\n'
+fi
 printf 'Run the command as the same Linux account that owns this key.\n'

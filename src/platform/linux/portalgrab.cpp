@@ -32,6 +32,9 @@
 #include "src/video.h"
 #include "vaapi.h"
 #include "wayland.h"
+#ifdef SUNSHINE_BUILD_WAYLAND
+#include "kwin_headless.h"
+#endif
 
 namespace {
   // Buffer and limit constants
@@ -756,7 +759,9 @@ namespace portal {
       node = stream_node;
 
       context = pw_context_new(pw_thread_loop_get_loop(loop), nullptr, 0);
-      core = pw_context_connect_fd(context, dup(fd), nullptr, 0);
+      core = fd >= 0 ? pw_context_connect_fd(context, dup(fd), nullptr, 0) :
+                       pw_context_connect(context, nullptr, 0);
+      if (!core) throw std::runtime_error("Could not connect to the headless PipeWire server");
       pw_core_add_listener(core, &core_listener, &core_events, nullptr);
     }
 
@@ -994,6 +999,21 @@ namespace portal {
       if (get_dmabuf_modifiers() < 0) {
         return -1;
       }
+
+#ifdef SUNSHINE_BUILD_WAYLAND
+      if (config::video.capture == "kwin") {
+        auto &session = syzygy::headless::kwin_session::instance();
+        if (!session.start()) {
+          BOOST_LOG(error) << "Cannot start direct KWin capture/input in the private headless session"sv;
+          return -1;
+        }
+        width = env_width = session.screen_width();
+        height = env_height = session.screen_height();
+        offset_x = offset_y = 0;
+        pipewire.init(-1, session.node_id());
+        return 0;
+      }
+#endif
 
       // Use cached portal session to avoid creating multiple screen recordings
       int pipewire_fd = -1;
@@ -1242,8 +1262,8 @@ namespace portal {
     platf::mem_type_e mem_type;
     wl::display_t wl_display;
     pipewire_t pipewire;
-    std::array<struct dmabuf_format_info_t, MAX_DMABUF_FORMATS> dmabuf_infos;
-    int n_dmabuf_infos;
+    std::array<struct dmabuf_format_info_t, MAX_DMABUF_FORMATS> dmabuf_infos {};
+    int n_dmabuf_infos = 0;
     bool display_is_nvidia = false;  // Track if display GPU is NVIDIA
     std::chrono::nanoseconds delay;
     std::uint64_t sequence {};
@@ -1259,6 +1279,7 @@ namespace platf {
       return nullptr;
     }
 
+    pw_init(nullptr, nullptr);
     auto portal = std::make_shared<portal::portal_t>();
     if (portal->init(hwdevice_type, display_name, config)) {
       return nullptr;

@@ -20,6 +20,8 @@ namespace syzygy {
         options.print_key = true;
       } else if (arg == "-h264") {
         h264 = true;
+      } else if (arg == "-headless") {
+        options.headless = true;
       } else if (arg == "-virtual") {
         options.virtual_display = true;
       } else if (arg == "-auto") {
@@ -33,7 +35,7 @@ namespace syzygy {
         options.encoder_override = true;
       } else if (arg.substr(0, 2) == "--") {
         // Apollo commands consume the rest of argv verbatim (including passwords).
-        if (options.print_key || options.start || h264 || options.automatic || options.virtual_display || !encoder.empty()) {
+        if (options.print_key || options.start || h264 || options.automatic || options.virtual_display || options.headless || !encoder.empty()) {
           throw std::invalid_argument("Use Syzygy shortcuts separately from --commands");
         }
         for (; i < argc; ++i) {
@@ -44,6 +46,17 @@ namespace syzygy {
         if (arg.substr(0, 8) == "capture=") options.capture_override = true;
         options.arguments.emplace_back(arg);
       }
+    }
+    if (options.headless) {
+      if (options.virtual_display) throw std::invalid_argument("Use -headless separately from -virtual");
+      for (const auto &arg : options.arguments) {
+        if (arg.compare(0, 8, "capture=") == 0 && arg != "capture=kwin") {
+          throw std::invalid_argument("-headless requires its private KWin capture backend");
+        }
+      }
+      options.capture_override = true;
+      options.arguments.emplace_back("capture=kwin");
+      options.arguments.emplace_back("portal_virtual_display=disabled");
     }
     if (options.virtual_display) {
       for (const auto &arg : options.arguments) {

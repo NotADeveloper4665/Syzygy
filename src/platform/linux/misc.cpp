@@ -950,6 +950,7 @@ std::string get_local_ip_for_gateway() {
 #endif
 #ifdef SUNSHINE_BUILD_PORTAL
     if (sources[source::PORTAL]) {
+      if (config::video.capture == "kwin") return {"Syzygy headless desktop"};
       return portal_display_names();
     }
 #endif
@@ -1054,6 +1055,16 @@ std::string get_local_ip_for_gateway() {
     }
 #endif
 #ifdef SUNSHINE_BUILD_PORTAL
+#ifdef SUNSHINE_BUILD_WAYLAND
+    if (config::video.capture == "kwin") {
+      const char *session = std::getenv("SYZYGY_HEADLESS_SESSION");
+      if (!session || std::string_view(session) != "1") {
+        BOOST_LOG(error) << "Direct KWin capture currently requires Syzygy's managed -headless session"sv;
+        return nullptr;
+      }
+      sources[source::PORTAL] = true;
+    }
+#endif
     // Prefer the session-authorized portal over KMS on Wayland. KMS needs
     // elevated privileges, while the portal asks the compositor for access.
     if (((config::video.capture.empty() && window_system == window_system_e::WAYLAND) || config::video.capture == "portal") && verify_portal()) {

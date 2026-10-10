@@ -51,6 +51,14 @@ int main() {
     require(automatic_vaapi.start && automatic_vaapi.automatic && automatic_vaapi.encoder_override
       && automatic_vaapi.arguments == std::vector<std::string>({"syzygy", "encoder=vaapi"}),
       "automatic capture selection can be combined with a forced VA-API encoder");
+    const auto headless = parse({"syzygy", "-s", "-auto", "-headless", "-psk"});
+    require(headless.headless && headless.capture_override && headless.start && headless.print_key,
+      "headless startup preserves the automatic encoder and key shortcuts");
+    require(headless.arguments == std::vector<std::string>({"syzygy", "capture=kwin", "portal_virtual_display=disabled"}),
+      "headless uses only the private native KWin backend");
+    rejects([] { parse({"syzygy", "-headless", "-virtual"}); }, "headless cannot reuse a logged-in portal session");
+    rejects([] { parse({"syzygy", "-headless", "capture=kms"}); }, "headless rejects physical capture overrides");
+    rejects([] { parse({"syzygy", "-headless", "--creds", "name", "password"}); }, "headless rejects administrative commands");
     const auto virtual_host = parse({"syzygy", "-s", "-auto", "-virtual", "-psk"});
     require(virtual_host.virtual_display && virtual_host.capture_override && virtual_host.automatic,
       "virtual display retains portal selection in automatic mode");

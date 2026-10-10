@@ -80,6 +80,7 @@ set(CPACK_RPM_PACKAGE_REQUIRES "\
             openssl >= 3.0.2, \
             pulseaudio-libs >= 10.0, \
             pipewire-libs, \
+            python3, \
             which >= 2.21")
 
 if(NOT BOOST_USE_STATIC)

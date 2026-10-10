@@ -132,6 +132,8 @@ if(WAYLAND_FOUND)
         pkg_check_modules(WAYLAND_PROTOCOLS wayland-protocols REQUIRED)
     endif()
 
+    GEN_WAYLAND("${CMAKE_SOURCE_DIR}" "protocols" zkde-screencast-unstable-v1)
+    GEN_WAYLAND("${CMAKE_SOURCE_DIR}" "protocols" fake-input)
     GEN_WAYLAND("${WAYLAND_PROTOCOLS_DIR}" "unstable/xdg-output" xdg-output-unstable-v1)
     GEN_WAYLAND("${WAYLAND_PROTOCOLS_DIR}" "unstable/linux-dmabuf" linux-dmabuf-unstable-v1)
     GEN_WAYLAND("${CMAKE_SOURCE_DIR}/third-party/wlr-protocols" "unstable" wlr-screencopy-unstable-v1)

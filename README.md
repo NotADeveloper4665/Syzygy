@@ -34,3 +34,43 @@ The installer supports apt, dnf, zypper, pacman, and apk. It requests sudo only 
 Syzygy retains upstream source history, license notices, and dependency pins. See the preserved [upstream README](README.upstream.md) for original platform notes and Windows SudoVDA details.
 
 Distributed under [GPLv3](LICENSE), with upstream copyright notices and dependency licenses retained.
+
+### Headless Linux server (development)
+
+`-headless` starts a private KWin Wayland desktop, virtual output, D-Bus session,
+PipeWire audio/video server and Plasma shell. It works from SSH without an existing
+graphical login, connected monitor, portal approval dialog or KMS capture capability.
+Keyboard and mouse input use the private compositor’s native input protocol.
+The server keeps its regular user’s configuration and pairing key.
+
+Fedora installation with the additional runtime dependencies:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NotADeveloper4665/Syzygy/main/scripts/install-syzygy.sh | SYZYGY_INSTALL_HEADLESS=1 bash
+```
+
+Start as a regular user:
+
+```bash
+syzygy -s -auto -headless -psk
+```
+
+The default virtual desktop is 1920x1080. Set its initial size before starting:
+
+```bash
+SYZYGY_HEADLESS_SIZE=2560x1440 syzygy -s -auto -headless -psk
+```
+
+Stop with Ctrl+C. Syzygy cleans up only the processes and runtime directory it
+created. Applications launched through this host inherit the private desktop and
+audio output. Xwayland supports applications that use X11 inside the Wayland desktop.
+Hardware encoding still requires working vendor drivers and render-device access;
+`-software` can select CPU encoding. This mode creates a separate desktop rather
+than attaching to another logged-in user’s desktop. Changing its display size during
+a stream and native touch/pen routing are not implemented yet. Gamepads require the
+normal uinput permissions. Automatic headless dependency installation currently
+supports Fedora; other distributions need the listed runtime programs installed.
+
+GitHub CI builds the RPM and runs a real displayless KWin-to-PipeWire frame test
+with Mesa software rendering. Hardware-specific NVIDIA/Intel/AMD validation remains
+necessary before treating headless mode as production-ready.
