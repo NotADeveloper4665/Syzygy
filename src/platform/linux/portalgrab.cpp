@@ -783,8 +783,13 @@ namespace portal {
         // Use DMA-BUF for VAAPI, or for CUDA when the display GPU is NVIDIA (pure NVIDIA system).
         // On hybrid GPU systems (Intel+NVIDIA), DMA-BUFs come from the Intel GPU and cannot
         // be imported into CUDA, so we fall back to memory buffers in that case.
-        bool use_dmabuf = n_dmabuf_infos > 0 && (mem_type == platf::mem_type_e::vaapi ||
-                                                 (mem_type == platf::mem_type_e::cuda && display_is_nvidia));
+        bool use_dmabuf = n_dmabuf_infos > 0 && mem_type == platf::mem_type_e::vaapi;
+#ifdef SUNSHINE_BUILD_CUDA
+        use_dmabuf = use_dmabuf || (n_dmabuf_infos > 0 &&
+          mem_type == platf::mem_type_e::cuda && display_is_nvidia);
+#endif
+        // Without the native CUDA converter, FFmpeg uploads memory buffers to
+        // NVENC. Negotiating DMA-BUF here would leave that converter without pixels.
         if (use_dmabuf) {
           for (int i = 0; i < n_dmabuf_infos; i++) {
             auto format_param = build_format_parameter(&pod_builder, width, height, refresh_rate, dmabuf_infos[i].format, dmabuf_infos[i].modifiers, dmabuf_infos[i].n_modifiers);

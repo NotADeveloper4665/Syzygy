@@ -8,6 +8,7 @@ Syzygy is a self-hosted streaming host for compatible Moonlight clients, with CL
 - PIN-free Eclipse pairing with a persistent passkey shown on interactive Linux startup. Anyone holding it can pair with full host permissions; paired devices reconnect without entering it again.
 - Cryptographically random passkey with private file permissions and atomic creation.
 - Linux source installer for apt, dnf, zypper, pacman, and apk systems. It installs build dependencies, builds the server, and prints the host key and automatic-mode start command.
+- Managed headless Wayland desktop: `syzygy -s -auto -headless -psk` (no graphical login required; install the headless runtime below).
 - Opt-in Linux Wayland portal virtual monitor: `syzygy -s -auto -virtual -psk`. Requires a logged-in desktop and portal advertising virtual-monitor support; client-driven resizing is pending.
 - Automated Linux build and tests for key storage, concurrency, unsafe files, argument handling, and stdout redaction.
 
