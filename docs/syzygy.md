@@ -94,3 +94,37 @@ g++ -std=c++17 -Wall -Wextra -Werror -Isrc src/syzygy/cli.cpp src/syzygy/key_sto
 Kyber refers to the QUIC interactive-streaming protocol, not the post-quantum cipher. Adding QUIC alone does not make a Moonlight client compatible with Kyber. No fixed latency promise is made.
 
 See the README for phrase entropy, scrypt parameters, key migration, and the Linux `-tails` trust policy. The persistent phrase flow uses the signed/HMAC challenge protocol, not PAKE.
+
+
+### Linux background operation
+
+`syzygy -s` now starts a detached, per-user process manager and returns to the
+terminal. Existing options, including `-auto`, `-headless`, and `-tails`, are
+forwarded to the server. Closing the terminal does not stop its process tree.
+
+```sh
+syzygy -s -auto -headless -tails
+syzygy -status
+syzygy -stop
+syzygy -psk
+```
+
+Status shows running/starting/stopped state, active streaming clients, their
+negotiated codecs (idle when no stream exists), the last selected encoder,
+recent errors with repeat counts, and the log path. Codec negotiation events
+are separate from startup encoder probes. An active client is a streaming
+session, not a saved paired device. Diagnostics belong to the latest managed
+run; unmanaged foreground servers are not included.
+
+Logs and status are private under `${XDG_STATE_HOME:-~/.local/state}/syzygy/service`.
+Server logs rotate at 2 MiB with three backups. At most ten recent error entries
+are retained. The background manager never requests or logs the pairing phrase;
+`-psk` on a background start directs you to run `syzygy -psk` separately.
+Repeated starts do not launch another managed server. `-stop` terminates its
+owned desktop/audio process group. Use `-foreground` with `-s` for interactive
+debugging or when an external systemd service already manages Syzygy.
+
+This is terminal-independent operation, not boot activation. On servers whose
+login policy kills all user processes at logout, configure a lingering user
+service separately. The managed start acknowledgement means the launcher
+started; use `-status` to inspect readiness and errors.

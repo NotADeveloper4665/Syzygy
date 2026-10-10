@@ -160,6 +160,26 @@ int main(int argc, char *argv[]) {
     std::cerr << "Syzygy: " << error.what() << std::endl;
     return 2;
   }
+#ifdef __linux__
+  if (cli.status || cli.stop || (cli.start && !cli.foreground && !std::getenv("SYZYGY_MANAGED_CHILD"))) {
+    const auto manager = std::filesystem::path(SUNSHINE_ASSETS_DIR) / "scripts/syzygy-service.py";
+    std::vector<std::string> args {"python3", manager.string(),
+        cli.status ? "status" : cli.stop ? "stop" : "start", "--binary",
+        std::filesystem::read_symlink("/proc/self/exe").string(), "--"};
+    for (int i = 1; i < argc; ++i) args.emplace_back(argv[i]);
+    std::vector<char *> exec_args;
+    for (auto &arg : args) exec_args.push_back(arg.data());
+    exec_args.push_back(nullptr);
+    execvp("python3", exec_args.data());
+    std::cerr << "Cannot start Syzygy background manager: Python 3 is required.\n";
+    return 2;
+  }
+#else
+  if (cli.status || cli.stop) {
+    std::cerr << "Background management is currently supported only on Linux.\n";
+    return 2;
+  }
+#endif
   if (cli.headless) {
 #ifdef __linux__
     const auto launcher = std::filesystem::path(SUNSHINE_ASSETS_DIR) / "scripts/syzygy-headless.py";
@@ -359,251 +379,477 @@ int main(int argc, char *argv[]) {
     session_monitor_join_thread_promise.set_value_at_thread_exit();
 
     WNDCLASSA wnd_class {};
-    wnd_class.lpszClassName = "SunshineSessionMonitorClass";
-    wnd_class.lpfnWndProc = SessionMonitorWindowProc;
-    if (!RegisterClassA(&wnd_class)) {
-      session_monitor_hwnd_promise.set_value(nullptr);
-      BOOST_LOG(error) << "Failed to register session monitor window class"sv << std::endl;
-      return;
+    wnd_class.lpszClassName = "Sunshine…19518 tokens truncated…_PORT);
+    auto video_port = net::map_port(VIDEO_STREAM_PORT);
+    auto audio_port = net::map_port(AUDIO_STREAM_PORT);
+
+    if (ctx.control_server.bind(address_family, control_port)) {
+      BOOST_LOG(error) << "Couldn't bind Control server to port ["sv << control_port << "], likely another process already bound to the port"sv;
+
+      return -1;
     }
 
-    auto wnd = CreateWindowExA(
-      0,
-      wnd_class.lpszClassName,
-      "Syzygy Session Monitor Window",
-      0,
-      CW_USEDEFAULT,
-      CW_USEDEFAULT,
-      CW_USEDEFAULT,
-      CW_USEDEFAULT,
-      nullptr,
-      nullptr,
-      nullptr,
-      nullptr
-    );
+    boost::system::error_code ec;
+    ctx.video_sock.open(protocol, ec);
+    if (ec) {
+      BOOST_LOG(fatal) << "Couldn't open socket for Video server: "sv << ec.message();
 
-    session_monitor_hwnd_promise.set_value(wnd);
-
-    if (!wnd) {
-      BOOST_LOG(error) << "Failed to create session monitor window"sv << std::endl;
-      return;
+      return -1;
     }
 
-    ShowWindow(wnd, SW_HIDE);
-
-    // Run the message loop for our window
-    MSG msg {};
-    while (GetMessage(&msg, nullptr, 0, 0) > 0) {
-      TranslateMessage(&msg);
-      DispatchMessage(&msg);
+    // Set video socket send buffer size (SO_SENDBUF) to 1MB
+    try {
+      ctx.video_sock.set_option(boost::asio::socket_base::send_buffer_size(1024 * 1024));
+    } catch (...) {
+      BOOST_LOG(error) << "Failed to set video socket send buffer size (SO_SENDBUF)";
     }
-  });
 
-  auto session_monitor_join_thread_guard = util::fail_guard([&]() {
-    if (session_monitor_hwnd_future.wait_for(1s) == std::future_status::ready) {
-      if (HWND session_monitor_hwnd = session_monitor_hwnd_future.get()) {
-        PostMessage(session_monitor_hwnd, WM_CLOSE, 0, 0);
+    ctx.video_sock.bind(udp::endpoint(protocol, video_port), ec);
+    if (ec) {
+      BOOST_LOG(fatal) << "Couldn't bind Video server to port ["sv << video_port << "]: "sv << ec.message();
+
+      return -1;
+    }
+
+    ctx.audio_sock.open(protocol, ec);
+    if (ec) {
+      BOOST_LOG(fatal) << "Couldn't open socket for Audio server: "sv << ec.message();
+
+      return -1;
+    }
+
+    ctx.audio_sock.bind(udp::endpoint(protocol, audio_port), ec);
+    if (ec) {
+      BOOST_LOG(fatal) << "Couldn't bind Audio server to port ["sv << audio_port << "]: "sv << ec.message();
+
+      return -1;
+    }
+
+    ctx.message_queue_queue = std::make_shared<message_queue_queue_t::element_type>(30);
+
+    ctx.video_thread = std::thread {videoBroadcastThread, std::ref(ctx.video_sock)};
+    ctx.audio_thread = std::thread {audioBroadcastThread, std::ref(ctx.audio_sock)};
+    ctx.control_thread = std::thread {controlBroadcastThread, &ctx.control_server};
+
+    ctx.recv_thread = std::thread {recvThread, std::ref(ctx)};
+
+    return 0;
+  }
+
+  void end_broadcast(broadcast_ctx_t &ctx) {
+    auto broadcast_shutdown_event = mail::man->event<bool>(mail::broadcast_shutdown);
+
+    broadcast_shutdown_event->raise(true);
+
+    auto video_packets = mail::man->queue<video::packet_t>(mail::video_packets);
+    auto audio_packets = mail::man->queue<audio::packet_t>(mail::audio_packets);
+
+    // Minimize delay stopping video/audio threads
+    video_packets->stop();
+    audio_packets->stop();
+
+    ctx.message_queue_queue->stop();
+    ctx.io_context.stop();
+
+    ctx.video_sock.close();
+    ctx.audio_sock.close();
+
+    video_packets.reset();
+    audio_packets.reset();
+
+    BOOST_LOG(debug) << "Waiting for main listening thread to end..."sv;
+    ctx.recv_thread.join();
+    BOOST_LOG(debug) << "Waiting for main video thread to end..."sv;
+    ctx.video_thread.join();
+    BOOST_LOG(debug) << "Waiting for main audio thread to end..."sv;
+    ctx.audio_thread.join();
+    BOOST_LOG(debug) << "Waiting for main control thread to end..."sv;
+    ctx.control_thread.join();
+    BOOST_LOG(debug) << "All broadcasting threads ended"sv;
+
+    broadcast_shutdown_event->reset();
+  }
+
+  int recv_ping(session_t *session, decltype(broadcast)::ptr_t ref, socket_e type, std::string_view expected_payload, udp::endpoint &peer, std::chrono::milliseconds timeout) {
+    auto messages = std::make_shared<message_queue_t::element_type>(30);
+    av_session_id_t session_id = std::string {expected_payload};
+
+    // Only allow matches on the peer address for legacy clients
+    if (!(session->config.mlFeatureFlags & ML_FF_SESSION_ID_V1)) {
+      ref->message_queue_queue->raise(type, peer.address(), messages);
+    }
+    ref->message_queue_queue->raise(type, session_id, messages);
+
+    auto fg = util::fail_guard([&]() {
+      messages->stop();
+
+      // remove message queue from session
+      if (!(session->config.mlFeatureFlags & ML_FF_SESSION_ID_V1)) {
+        ref->message_queue_queue->raise(type, peer.address(), nullptr);
+      }
+      ref->message_queue_queue->raise(type, session_id, nullptr);
+    });
+
+    auto start_time = std::chrono::steady_clock::now();
+    auto current_time = start_time;
+
+    while (current_time - start_time < config::stream.ping_timeout) {
+      auto delta_time = current_time - start_time;
+
+      auto msg_opt = messages->pop(config::stream.ping_timeout - delta_time);
+      if (!msg_opt) {
+        break;
       }
 
-      if (session_monitor_join_thread_future.wait_for(1s) == std::future_status::ready) {
-        session_monitor_thread.join();
-        return;
+      TUPLE_2D_REF(recv_peer, msg, *msg_opt);
+      if (msg.find(expected_payload) != std::string::npos) {
+        // Match the new PING payload format
+        BOOST_LOG(debug) << "Received ping [v2] from "sv << recv_peer.address() << ':' << recv_peer.port() << " ["sv << util::hex_vec(msg) << ']';
+      } else if (!(session->config.mlFeatureFlags & ML_FF_SESSION_ID_V1) && msg == "PING"sv) {
+        // Match the legacy fixed PING payload only if the new type is not supported
+        BOOST_LOG(debug) << "Received ping [v1] from "sv << recv_peer.address() << ':' << recv_peer.port() << " ["sv << util::hex_vec(msg) << ']';
       } else {
-        BOOST_LOG(warning) << "session_monitor_join_thread_future reached timeout";
+        BOOST_LOG(debug) << "Received non-ping from "sv << recv_peer.address() << ':' << recv_peer.port() << " ["sv << util::hex_vec(msg) << ']';
+        current_time = std::chrono::steady_clock::now();
+        continue;
       }
-    } else {
-      BOOST_LOG(warning) << "session_monitor_hwnd_future reached timeout";
+
+      // Update connection details.
+      peer = recv_peer;
+      return 0;
     }
 
-    session_monitor_thread.detach();
-  });
-
-#endif
-
-  task_pool.start(1);
-
-  // Create signal handler after logging has been initialized
-  auto shutdown_event = mail::man->event<bool>(mail::shutdown);
-  on_signal(SIGINT, [&force_shutdown, &display_device_deinit_guard, shutdown_event]() {
-    BOOST_LOG(info) << "Interrupt handler called"sv;
-
-    auto task = []() {
-      BOOST_LOG(fatal) << "10 seconds passed, yet Syzygy is still running: forcing shutdown"sv;
-      logging::log_flush();
-      lifetime::debug_trap();
-    };
-
-    proc::proc.terminate();
-
-    force_shutdown = task_pool.pushDelayed(task, 10s).task_id;
-
-    shutdown_event->raise(true);
-    display_device_deinit_guard = nullptr;
-  });
-
-  on_signal(SIGTERM, [&force_shutdown, &display_device_deinit_guard, shutdown_event]() {
-    BOOST_LOG(info) << "Terminate handler called"sv;
-
-    auto task = []() {
-      BOOST_LOG(fatal) << "10 seconds passed, yet Syzygy is still running: forcing shutdown"sv;
-      logging::log_flush();
-      lifetime::debug_trap();
-    };
-    force_shutdown = task_pool.pushDelayed(task, 10s).task_id;
-
-    shutdown_event->raise(true);
-    display_device_deinit_guard = nullptr;
-  });
-
-#ifdef _WIN32
-  // Terminate gracefully on Windows when console window is closed
-  SetConsoleCtrlHandler(ConsoleCtrlHandler, TRUE);
-#endif
-
-  proc::refresh(config::stream.file_apps);
-
-  // If any of the following fail, we log an error and continue event though sunshine will not function correctly.
-  // This allows access to the UI to fix configuration problems or view the logs.
-
-  auto platf_deinit_guard = platf::init();
-  if (!platf_deinit_guard) {
-    BOOST_LOG(error) << "Platform failed to initialize"sv;
-  }
-
-  auto proc_deinit_guard = proc::init();
-  if (!proc_deinit_guard) {
-    BOOST_LOG(error) << "Proc failed to initialize"sv;
-  }
-
-  reed_solomon_init();
-  auto input_deinit_guard = input::init();
-
-  if (input::probe_gamepads()) {
-    BOOST_LOG(warning) << "No gamepad input is available"sv;
-  }
-
-  if (video::probe_encoders()) {
-#ifdef _WIN32
-    bool allow_probing = video::allow_encoder_probing();
-    // Create a temporary virtual display for encoder capability probing
-    if (proc::vDisplayDriverStatus == VDISPLAY::DRIVER_STATUS::OK) {
-      std::string probe_uuid_str = PROBE_DISPLAY_UUID;
-      auto probe_uuid = uuid_util::uuid_t::parse(probe_uuid_str);
-      auto* probe_guid = (GUID*)(void*)&probe_uuid;
-
-      BOOST_LOG(info) << "Creating a temporary virtual display to probe for encoders..."sv;
-
-      if (!config::video.adapter_name.empty()) {
-        VDISPLAY::setRenderAdapterByName(platf::from_utf8(config::video.adapter_name));
-      }
-
-      VDISPLAY::createVirtualDisplay(
-        probe_uuid_str.c_str(),
-        "Probe",
-        800,
-        600,
-        60,
-        *probe_guid
-      );
-
-      std::this_thread::sleep_for(500ms);
-
-      // Probe again anyways
-      if (video::probe_encoders()) {
-        if (allow_probing) {
-          BOOST_LOG(error) << "Video failed to find working encoder: allow probing but failed"sv;
-        } else {
-          BOOST_LOG(error) << "Video failed to find working encoder even after attempted with a virtual display"sv;
-        }
-      }
-
-      VDISPLAY::removeVirtualDisplay(*probe_guid);
-    } else if (!allow_probing) {
-      BOOST_LOG(error) << "Video failed to find working encoder: probe failed and virtual display driver isn't initialized"sv;
-    }
-#else
-    BOOST_LOG(error) << "Video failed to find working encoder: probing failed."sv;
-#endif
-  }
-
-  if (http::init()) {
-    BOOST_LOG(fatal) << "HTTP interface failed to initialize"sv;
-
-#ifdef _WIN32
-    BOOST_LOG(fatal) << "To relaunch Syzygy successfully, use the shortcut in the Start Menu. Do not run syzygy.exe manually."sv;
-    std::this_thread::sleep_for(10s);
-#endif
-
+    BOOST_LOG(error) << "Initial Ping Timeout"sv;
     return -1;
   }
 
-  std::unique_ptr<platf::deinit_t> mDNS;
-  auto sync_mDNS = std::async(std::launch::async, [&mDNS]() {
-    if (config::sunshine.enable_discovery) {
-      mDNS = platf::publish::start();
+  void videoThread(session_t *session) {
+    auto fg = util::fail_guard([&]() {
+      session::stop(*session);
+    });
+
+    while_starting_do_nothing(session->state);
+
+    auto ref = broadcast.ref();
+    auto error = recv_ping(session, ref, socket_e::video, session->video.ping_payload, session->video.peer, config::stream.ping_timeout);
+    if (error < 0) {
+      return;
     }
-  });
 
-  std::unique_ptr<platf::deinit_t> upnp_unmap;
-  auto sync_upnp = std::async(std::launch::async, [&upnp_unmap]() {
-    upnp_unmap = upnp::start();
-  });
+    // Enable local prioritization and QoS tagging on video traffic if requested by the client
+    auto address = session->video.peer.address();
+    session->video.qos = platf::enable_socket_qos(ref->video_sock.native_handle(), address, session->video.peer.port(), platf::qos_data_type_e::video, session->config.videoQosType != 0);
 
-  // FIXME: Temporary workaround: Simple-Web_server needs to be updated or replaced
-  if (shutdown_event->peek()) {
-    return lifetime::desired_exit_code;
+    BOOST_LOG(debug) << "Start capturing Video"sv;
+    video::capture(session->mail, session->config.monitor, session);
   }
 
-  std::thread httpThread {nvhttp::start};
-  std::thread configThread {confighttp::start};
-  std::thread rtspThread {rtsp_stream::start};
+  void audioThread(session_t *session) {
+    auto fg = util::fail_guard([&]() {
+      session::stop(*session);
+    });
 
-#ifdef _WIN32
-  // If we're using the default port and GameStream is enabled, warn the user
-  if (config::sunshine.port == 47989 && is_gamestream_enabled()) {
-    BOOST_LOG(fatal) << "GameStream is still enabled in GeForce Experience! This *will* cause streaming problems with Syzygy!"sv;
-    BOOST_LOG(fatal) << "Disable GameStream on the SHIELD tab in GeForce Experience or change the Port setting on the Advanced tab in the Syzygy Web UI."sv;
-  }
-#endif
+    while_starting_do_nothing(session->state);
 
-  if (tray_is_enabled && config::sunshine.system_tray) {
-    BOOST_LOG(info) << "Starting system tray"sv;
-#ifdef _WIN32
-    // TODO: Windows has a weird bug where when running as a service and on the first Windows boot,
-    // the tray icon would not appear even though Syzygy is running correctly otherwise.
-    // Restarting the service would allow the icon to appear normally.
-    // For now we will keep the Windows tray icon on a separate thread.
-    // Ideally, we would run the system tray on the main thread for all platforms.
-    system_tray::init_tray_threaded();
-#else
-    system_tray::init_tray();
-#endif
+    auto ref = broadcast.ref();
+    auto error = recv_ping(session, ref, socket_e::audio, session->audio.ping_payload, session->audio.peer, config::stream.ping_timeout);
+    if (error < 0) {
+      return;
+    }
+
+    // Enable local prioritization and QoS tagging on audio traffic if requested by the client
+    auto address = session->audio.peer.address();
+    session->audio.qos = platf::enable_socket_qos(ref->audio_sock.native_handle(), address, session->audio.peer.port(), platf::qos_data_type_e::audio, session->config.audioQosType != 0);
+
+    BOOST_LOG(debug) << "Start capturing Audio"sv;
+    audio::capture(session->mail, session->config.audio, session);
   }
 
-  mainThreadLoop(shutdown_event);
+  namespace session {
+    std::atomic_uint running_sessions;
 
-  // Wait for shutdown, this is not necessary when we're using the main event loop
-  shutdown_event->view();
+    state_e state(session_t &session) {
+      return session.state.load(std::memory_order_relaxed);
+    }
 
-  httpThread.join();
-  configThread.join();
-  rtspThread.join();
+    inline bool send(session_t& session, const std::string_view &payload) {
+      return session.broadcast_ref->control_server.send(payload, session.control.peer);
+    }
 
-  task_pool.stop();
-  task_pool.join();
+    std::string uuid(const session_t& session) {
+      return session.device_uuid;
+    }
 
-#ifdef _WIN32
-  // Restore global NVIDIA control panel settings
-  if (nvprefs_instance.owning_undo_file() && nvprefs_instance.load()) {
-    nvprefs_instance.restore_global_profile();
-    nvprefs_instance.unload();
-  }
+    bool uuid_match(const session_t &session, const std::string_view& uuid) {
+      return session.device_uuid == uuid;
+    }
 
-  // Stop the threaded tray if it was started
-  if (tray_is_enabled && config::sunshine.system_tray) {
-    system_tray::end_tray_threaded();
-  }
-#endif
+    bool update_device_info(session_t& session, const std::string& name, const crypto::PERM& newPerm) {
+      session.permission = newPerm;
+      if (!(newPerm & crypto::PERM::_allow_view)) {
+        BOOST_LOG(debug) << "Session: View permission revoked for [" << session.device_name << "], disconnecting...";
+        graceful_stop(session);
+        return true;
+      }
 
-  return lifetime::desired_exit_code;
-}
+      BOOST_LOG(debug) << "Session: Permission updated for [" << session.device_name << "]";
+
+      if (session.device_name != name) {
+        BOOST_LOG(debug) << "Session: Device name changed from [" << session.device_name << "] to [" << name << "]";
+        session.device_name = name;
+      }
+
+      return false;
+    }
+
+    void stop(session_t &session) {
+      while_starting_do_nothing(session.state);
+      auto expected = state_e::RUNNING;
+      auto already_stopping = !session.state.compare_exchange_strong(expected, state_e::STOPPING);
+      if (already_stopping) {
+        return;
+      }
+
+      BOOST_LOG(info) << "SYZYGY_SESSION_STOP " << reinterpret_cast<std::uintptr_t>(&session);
+      session.shutdown_event->raise(true);
+    }
+
+    void graceful_stop(session_t& session) {
+      while_starting_do_nothing(session.state);
+      auto expected = state_e::RUNNING;
+      auto already_stopping = !session.state.compare_exchange_strong(expected, state_e::STOPPING);
+      if (already_stopping) {
+        return;
+      }
+
+      BOOST_LOG(info) << "SYZYGY_SESSION_STOP " << reinterpret_cast<std::uintptr_t>(&session);
+
+      // reason: graceful termination
+      std::uint32_t reason = 0x80030023;
+
+      control_terminate_t plaintext;
+      plaintext.header.type = packetTypes[IDX_TERMINATION];
+      plaintext.header.payloadLength = sizeof(plaintext.ec);
+      plaintext.ec = util::endian::big<uint32_t>(reason);
+
+      // We may not have gotten far enough to have an ENet connection yet
+      if (session.control.peer) {
+        std::array<std::uint8_t,
+          sizeof(control_encrypted_t) + crypto::cipher::round_to_pkcs7_padded(sizeof(plaintext)) + crypto::cipher::tag_size>
+          encrypted_payload;
+        auto payload = stream::encode_control(&session, util::view(plaintext), encrypted_payload);
+
+        if (send(session, payload)) {
+          TUPLE_2D(port, addr, platf::from_sockaddr_ex((sockaddr *) &session.control.peer->address.address));
+          BOOST_LOG(warning) << "Couldn't send termination code to ["sv << addr << ':' << port << ']';
+        }
+      }
+
+      session.shutdown_event->raise(true);
+      session.controlEnd.raise(true);
+    }
+
+    void join(session_t &session) {
+      // Current Nvidia drivers have a bug where NVENC can deadlock the encoder thread with hardware-accelerated
+      // GPU scheduling enabled. If this happens, we will terminate ourselves and the service can restart.
+      // The alternative is that Sunshine can never start another session until it's manually restarted.
+      auto task = []() {
+        BOOST_LOG(fatal) << "Hang detected! Session failed to terminate in 10 seconds."sv;
+        logging::log_flush();
+        lifetime::debug_trap();
+      };
+      auto force_kill = task_pool.pushDelayed(task, 10s).task_id;
+      auto fg = util::fail_guard([&force_kill]() {
+        // Cancel the kill task if we manage to return from this function
+        task_pool.cancel(force_kill);
+      });
+
+      BOOST_LOG(debug) << "Waiting for video to end..."sv;
+      session.videoThread.join();
+      BOOST_LOG(debug) << "Waiting for audio to end..."sv;
+      session.audioThread.join();
+      BOOST_LOG(debug) << "Waiting for control to end..."sv;
+      session.controlEnd.view();
+      // Reset input on session stop to avoid stuck repeated keys
+      BOOST_LOG(debug) << "Resetting Input..."sv;
+      input::reset(session.input);
+
+      if (!session.undo_cmds.empty()) {
+        auto exec_thread = std::thread([cmd_list = session.undo_cmds]{
+          for (auto &cmd : cmd_list) {
+            std::error_code ec;
+            auto env = proc::proc.get_env();
+            boost::filesystem::path working_dir = proc::find_working_directory(cmd.cmd, env);
+            auto child = platf::run_command(cmd.elevated, true, cmd.cmd, working_dir, env, nullptr, ec, nullptr);
+            BOOST_LOG(info) << "Spawning client undo command ["sv << cmd.cmd << "] in ["sv << working_dir << ']';
+            if (ec) {
+              BOOST_LOG(warning) << "Couldn't spawn ["sv << cmd.cmd << "]: System: "sv << ec.message();
+            } else {
+              child.detach();
+            }
+          }
+        });
+
+        exec_thread.detach();
+      }
+
+      // If this is the last session, invoke the platform callbacks
+      if (--running_sessions == 0) {
+        bool revert_display_config {config::video.dd.config_revert_on_disconnect};
+        if (proc::proc.running()) {
+          proc::proc.pause();
+        } else {
+          // We have no app running and also no clients anymore.
+          revert_display_config = true;
+        }
+
+        if (revert_display_config) {
+          display_device::revert_configuration();
+        }
+
+        platf::streaming_will_stop();
+      }
+
+      BOOST_LOG(debug) << "Session ended"sv;
+    }
+
+    int start(session_t &session, const std::string &addr_string) {
+      session.input = input::alloc(session.mail);
+
+      session.broadcast_ref = broadcast.ref();
+      if (!session.broadcast_ref) {
+        return -1;
+      }
+
+      session.control.expected_peer_address = addr_string;
+      BOOST_LOG(debug) << "Expecting incoming session connections from "sv << addr_string;
+
+      // Insert this session into the session list
+      {
+        auto lg = session.broadcast_ref->control_server._sessions.lock();
+        session.broadcast_ref->control_server._sessions->push_back(&session);
+      }
+
+      auto addr = boost::asio::ip::make_address(addr_string);
+      session.video.peer.address(addr);
+      session.video.peer.port(0);
+
+      session.audio.peer.address(addr);
+      session.audio.peer.port(0);
+
+      session.pingTimeout = std::chrono::steady_clock::now() + config::stream.ping_timeout;
+
+      session.audioThread = std::thread {audioThread, &session};
+      session.videoThread = std::thread {videoThread, &session};
+
+      BOOST_LOG(info) << "SYZYGY_SESSION_START " << reinterpret_cast<std::uintptr_t>(&session)
+                      << " " << (session.config.monitor.videoFormat == 0 ? "H.264" : session.config.monitor.videoFormat == 1 ? "HEVC" : "AV1");
+      session.state.store(state_e::RUNNING, std::memory_order_relaxed);
+
+      // If this is the first session, invoke the platform callbacks
+      if (++running_sessions == 1) {
+        platf::streaming_will_start();
+        proc::proc.resume();
+      }
+
+      if (!session.do_cmds.empty()) {
+        auto exec_thread = std::thread([cmd_list = session.do_cmds]{
+          for (auto &cmd : cmd_list) {
+            std::error_code ec;
+            auto env = proc::proc.get_env();
+            boost::filesystem::path working_dir = proc::find_working_directory(cmd.cmd, env);
+            auto child = platf::run_command(cmd.elevated, true, cmd.cmd, working_dir, env, nullptr, ec, nullptr);
+            BOOST_LOG(info) << "Spawning client do command ["sv << cmd.cmd << "] in ["sv << working_dir << ']';
+            if (ec) {
+              BOOST_LOG(warning) << "Couldn't spawn ["sv << cmd.cmd << "]: System: "sv << ec.message();
+            } else {
+              child.detach();
+            }
+          }
+        });
+
+        exec_thread.detach();
+      }
+
+      return 0;
+    }
+
+    std::shared_ptr<session_t> alloc(config_t &config, rtsp_stream::launch_session_t &launch_session) {
+      auto session = std::make_shared<session_t>();
+
+      auto mail = std::make_shared<safe::mail_raw_t>();
+
+      session->shutdown_event = mail->event<bool>(mail::shutdown);
+      session->launch_session_id = launch_session.id;
+      session->device_name = launch_session.device_name;
+      session->device_uuid = launch_session.unique_id;
+      session->permission = launch_session.perm;
+
+      session->do_cmds = std::move(launch_session.client_do_cmds);
+      session->undo_cmds = std::move(launch_session.client_undo_cmds);
+
+      session->config = config;
+
+      session->control.connect_data = launch_session.control_connect_data;
+      session->control.feedback_queue = mail->queue<platf::gamepad_feedback_msg_t>(mail::gamepad_feedback);
+      session->control.hdr_queue = mail->event<video::hdr_info_t>(mail::hdr);
+      session->control.legacy_input_enc_iv = launch_session.iv;
+      session->control.cipher = crypto::cipher::gcm_t {
+        launch_session.gcm_key,
+        false
+      };
+
+      session->video.idr_events = mail->event<bool>(mail::idr);
+      session->video.invalidate_ref_frames_events = mail->event<std::pair<int64_t, int64_t>>(mail::invalidate_ref_frames);
+      session->video.lowseq = 0;
+      session->video.ping_payload = launch_session.av_ping_payload;
+      if (config.encryptionFlagsEnabled & SS_ENC_VIDEO) {
+        BOOST_LOG(info) << "Video encryption enabled"sv;
+        session->video.cipher = crypto::cipher::gcm_t {
+          launch_session.gcm_key,
+          false
+        };
+        session->video.gcm_iv_counter = 0;
+      }
+
+      constexpr auto max_block_size = crypto::cipher::round_to_pkcs7_padded(2048);
+
+      util::buffer_t<char> shards {RTPA_TOTAL_SHARDS * max_block_size};
+      util::buffer_t<uint8_t *> shards_p {RTPA_TOTAL_SHARDS};
+
+      for (auto x = 0; x < RTPA_TOTAL_SHARDS; ++x) {
+        shards_p[x] = (uint8_t *) &shards[x * max_block_size];
+      }
+
+      // Audio FEC spans multiple audio packets,
+      // therefore its session specific
+      session->audio.shards = std::move(shards);
+      session->audio.shards_p = std::move(shards_p);
+
+      session->audio.fec_packet.rtp.header = 0x80;
+      session->audio.fec_packet.rtp.packetType = 127;
+      session->audio.fec_packet.rtp.timestamp = 0;
+      session->audio.fec_packet.rtp.ssrc = 0;
+
+      session->audio.fec_packet.fecHeader.payloadType = 97;
+      session->audio.fec_packet.fecHeader.ssrc = 0;
+
+      session->audio.cipher = crypto::cipher::cbc_t {
+        launch_session.gcm_key,
+        true
+      };
+
+      session->audio.ping_payload = launch_session.av_ping_payload;
+      session->audio.avRiKeyId = util::endian::big(*(std::uint32_t *) launch_session.iv.data());
+      session->audio.sequenceNumber = 0;
+      session->audio.timestamp = 0;
+
+      session->control.peer = nullptr;
+      session->state.store(state_e::STOPPED, std::memory_order_relaxed);
+
+      session->mail = std::move(mail);
+
+      return session;
+    }
+  }  // namespace session
+}  // namespace stream

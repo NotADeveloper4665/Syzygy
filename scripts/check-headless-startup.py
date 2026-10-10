@@ -15,7 +15,7 @@ with tempfile.TemporaryDirectory(prefix='syzygy-headless-installed-') as directo
         env.pop(key, None)
     log_path = Path(directory) / 'server.log'
     with log_path.open('w') as log:
-        process = subprocess.Popen(['/usr/bin/syzygy', '-s', '-auto', '-headless',
+        process = subprocess.Popen(['/usr/bin/syzygy', '-s', '-foreground', '-auto', '-headless',
                                     '-software', '-h264', 'port=49189'],
                                    cwd=directory, env=env, stdout=log, stderr=subprocess.STDOUT,
                                    start_new_session=True)

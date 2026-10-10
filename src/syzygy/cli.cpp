@@ -14,6 +14,12 @@ namespace syzygy {
         options.arguments.emplace_back(arg);
       } else if (arg == "--help") {
         return {{argv[0], "--help"}, false, false};
+      } else if (arg == "-status") {
+        options.status = true;
+      } else if (arg == "-stop") {
+        options.stop = true;
+      } else if (arg == "-foreground") {
+        options.foreground = true;
       } else if (arg == "-s") {
         options.start = true;
       } else if (arg == "-tails") {

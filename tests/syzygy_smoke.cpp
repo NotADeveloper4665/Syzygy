@@ -45,6 +45,9 @@ int main() {
     require(parse({"syzygy", "-nvenc"}).arguments.back() == "encoder=nvenc", "NVENC spelling alias");
     require(parse({"syzygy", "-vaapi"}).arguments.back() == "encoder=vaapi", "VA-API encoder option");
     require(parse({"syzygy", "-software"}).arguments.back() == "encoder=software", "software encoder option");
+    require(parse({"syzygy", "-status"}).status, "Status shortcut");
+    require(parse({"syzygy", "-stop"}).stop, "Stop shortcut");
+    require(parse({"syzygy", "-s", "-foreground"}).foreground, "Foreground shortcut");
     const auto automatic = parse({"syzygy", "-s", "-auto", "encoder=vaapi", "capture=kwin"});
     require(automatic.start && automatic.automatic && automatic.encoder_override && automatic.capture_override && automatic.arguments == std::vector<std::string>({
       "syzygy", "encoder=vaapi", "capture=kwin"}),

@@ -274,6 +274,10 @@ namespace logging {
       << "    --creds username password | set user credentials for the Web manager"sv << std::endl
       << "    --version                 | print the version of Syzygy"sv << std::endl
       << "    Syzygy shortcuts (Linux)"sv << std::endl
+      << "        -s          | start in the background (terminal may close)"sv << std::endl
+      << "        -status     | show managed server, codecs, clients and recent errors"sv << std::endl
+      << "        -stop       | stop the managed server and its private desktop"sv << std::endl
+      << "        -foreground | keep -s attached for debugging/external supervisors"sv << std::endl
       << "        -s       | start the host (passkey pairing is enabled on normal Linux startup)"sv << std::endl
       << "        -headless | start a private Wayland desktop (no existing desktop required)"sv << std::endl
       << "        -virtual | create a Linux portal virtual monitor (desktop session required)"sv << std::endl
