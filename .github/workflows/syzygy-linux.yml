@@ -25,7 +25,21 @@ jobs:
       - name: Prepare virtual DRM device for displayless capture tests
         run: |
           if ! sudo modprobe vgem; then
-            sudo apt-get install -y "linux-modules-extra-$(uname -r)"
+            sudo apt-get install -y "linux-headers-$(uname -r)"
+            kernel_series="$(uname -r | cut -d. -f1,2)"
+            module_dir="$(mktemp -d)"
+            for source in vgem_drv.c vgem_drv.h vgem_fence.c; do
+              curl -fsSL "https://raw.githubusercontent.com/torvalds/linux/v$kernel_series/drivers/gpu/drm/vgem/$source" -o "$module_dir/$source"
+            done
+            printf 'obj-m := vgem.o\nvgem-y := vgem_drv.o vgem_fence.o\n' > "$module_dir/Makefile"
+            if ! sudo modprobe drm_shmem_helper; then
+              curl -fsSL "https://raw.githubusercontent.com/torvalds/linux/v$kernel_series/drivers/gpu/drm/drm_gem_shmem_helper.c" -o "$module_dir/drm_gem_shmem_helper.c"
+              printf 'obj-m += drm_shmem_helper.o\ndrm_shmem_helper-y := drm_gem_shmem_helper.o\n' >> "$module_dir/Makefile"
+            fi
+            make -C "/lib/modules/$(uname -r)/build" M="$module_dir" modules
+            sudo install -d "/lib/modules/$(uname -r)/extra"
+            sudo install -m 0644 "$module_dir"/*.ko "/lib/modules/$(uname -r)/extra/"
+            sudo depmod -a
             sudo modprobe vgem
           fi
           virtual_card=""
