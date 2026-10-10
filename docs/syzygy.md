@@ -8,7 +8,7 @@ Syzygy is a streaming host configured through the CLI. Upstream source history, 
 ./syzygy -s -auto
 ```
 
-`-s` starts the host. On Linux, normal startup (`syzygy` or `syzygy -s`) automatically loads or generates a persistent pairing passkey and enables PIN-free pairing. Interactive terminal startup displays it; unattended startup keeps it out of file/journal logs. In Eclipse, add the host by IP or discover it, click the host, choose **Syzygy passkey**, and paste the displayed key. No PIN or web-page approval is needed. Multiple clients can use the same passkey, and pairing survives restarts. `-auto` clears saved encoder and capture overrides so the host probes the available backends on this machine; combine it with `-nvec` (or `-nvenc`), `-vaapi`, or `-software` to auto-detect capture while forcing an encoder. This is useful when moving configuration between systems or recovering from an invalid saved option such as `capture=kwin`. Without `-auto`, saved capture configuration is respected. `-h264` disables HEVC and AV1 advertisement. The legacy `-p` still toggles UPnP.
+`-s` starts the host. On Linux, normal startup (`syzygy` or `syzygy -s`) automatically loads or generates a persistent pairing passkey and enables PIN-free pairing. Interactive terminal startup displays it; unattended startup keeps it out of file/journal logs. In Eclipse, add the host by IP or discover it, click the host, choose **Syzygy passkey**, and paste the displayed key. No PIN or web-page approval is needed. Multiple clients can use the same passkey, and pairing survives restarts. `-auto` clears saved encoder and capture overrides while retaining explicit command-line selections, so the host probes the available backends on this machine; combine it with `-nvec` (or `-nvenc`), `-vaapi`, or `-software` to auto-detect capture while forcing an encoder. This is useful when moving configuration between systems or recovering from an invalid saved option such as `capture=kwin`. Without `-auto`, saved capture configuration is respected. `-h264` disables HEVC and AV1 advertisement. The legacy `-p` still toggles UPnP.
 
 `-psk` loads or generates a persistent 48-character random hex key and prints only that key to stdout. With `-s`, startup logs go to stderr; without `-s`, the command exits after printing. Handle this output as a secret. It is not placed in normal logs.
 
@@ -34,7 +34,39 @@ The client decodes `authmessage`, computes `HMAC-SHA256(key-as-48-ASCII-hex-byte
 
 Successful enrollment saves the client certificate and grants the full permission set to the key holder, including input, file, clipboard, server-command, and streaming permissions. The matching Eclipse client implements this extension; its pairing dialog accepts the passkey. This is a high-entropy generated-key protocol, not a password protocol; a user-chosen connection password needs a reviewed PAKE design and a separate client flow. Key rotation and device revocation are still pending. The web interface remains available until its administration functions have CLI equivalents.
 
-Windows keeps the inherited executable and service setup. `-s` continues to start the host with PIN pairing there, while `-psk` and strong-key enrollment remain unavailable until owner-only ACL handling is implemented. The existing Windows SudoVDA integration remains available; Linux virtual-display support is not implemented.
+Windows keeps the inherited executable and service setup. `-s` continues to start the host with PIN pairing there, while `-psk` and strong-key enrollment remain unavailable until owner-only ACL handling is implemented. The existing Windows SudoVDA integration remains available; Linux portal virtual monitors are available as described below.
+
+## Linux virtual monitors (Wayland portal)
+
+```sh
+syzygy -s -auto -virtual -psk
+```
+
+Run from the logged-in user's Wayland desktop terminal. `-virtual` selects
+`capture=portal` and `portal_virtual_display=enabled`. The portal must advertise
+VIRTUAL support in `AvailableSourceTypes`; unsupported compositors fail with a
+clear message. Approve the desktop screen-sharing dialog to create its virtual
+monitor. Syzygy verifies the returned source is virtual and streams its PipeWire
+node. It does not fall back to capturing a physical screen in this mode.
+
+The monitor and portal session are reused during encoder probing and subsequent
+streams, and closed when Syzygy exits. Virtual mode does not reuse or overwrite
+physical-screen restore tokens. The compositor selects the virtual monitor's
+resolution; the standard portal does not provide an arbitrary resolution/refresh
+request. Per-client resizing, creation/removal per streaming session, and a
+completely logged-out headless compositor are not implemented. This option is
+independent of the client's existing Windows SudoVDA checkbox.
+
+A virtual monitor does not create a desktop login session. `WAYLAND_DISPLAY`,
+`XDG_RUNTIME_DIR`, the user session bus, PipeWire, and a supporting desktop portal
+must be available. Start in KDE Konsole rather than an environment without the
+desktop session. No KMS capability grant is needed for portal capture.
+
+For a physical screen, omit `-virtual` and use `capture=portal`. `-auto` now
+preserves that explicit capture argument instead of clearing it. Input continues
+through the existing Linux input backend and requires its normal uinput access.
+
+Reference: https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html
 
 ## Build and validation
 
@@ -55,7 +87,7 @@ g++ -std=c++17 -Wall -Wextra -Werror -Isrc src/syzygy/cli.cpp src/syzygy/key_sto
 | CLI/configuration | `src/main.cpp`, `src/config.cpp`, `src/syzygy/` | Key status/rotation and device revocation commands |
 | Pairing/authorization | `src/nvhttp.cpp`, `src/crypto.cpp`, `src/syzygy/pairing_auth.*` | Failed-attempt limits, key rotation, and device revocation |
 | Password enrollment | New PAKE boundary alongside existing pairing | Evaluate an audited OPAQUE implementation and add a compatible Eclipse client flow |
-| Virtual displays | `src/process.cpp`, `src/platform/windows/virtual_display.*` | Verify existing SudoVDA lifecycle on Windows and evaluate Linux headless backends separately |
+| Virtual displays | `src/process.cpp`, `src/platform/windows/virtual_display.*` | Verify existing SudoVDA lifecycle on Windows and test Linux portal virtual monitors and add per-client resizing/headless backends |
 | Kyber | Separate experimental transport boundary | Pin and audit the actual Kyber SDK/mux, license, authentication, and client compatibility before media integration |
 | Packaging | `cmake/packaging/`, `packaging/` | Rename and verify service/install paths, then add Fedora RPM builds |
 

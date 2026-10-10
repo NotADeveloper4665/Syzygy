@@ -195,8 +195,23 @@ int main(int argc, char *argv[]) {
       config::video.encoder.clear();
       config::modified_config_settings["encoder"] = "";
     }
-    config::video.capture.clear();
-    config::modified_config_settings["capture"] = "";
+    if (!cli.capture_override) {
+      config::video.capture.clear();
+      config::modified_config_settings["capture"] = "";
+    }
+  }
+
+  if (config::video.portal_virtual_display) {
+#ifdef _WIN32
+    std::cerr << "-virtual / portal_virtual_display is a Linux-only option. Use SudoVDA on Windows.\n";
+    return 2;
+#endif
+    if (cli.capture_override && config::video.capture != "portal") {
+      std::cerr << "Virtual displays require capture=portal on Linux.\n";
+      return 2;
+    }
+    config::video.capture = "portal";
+    config::modified_config_settings["capture"] = "portal";
   }
 
   if (config::sunshine.cmd.name.empty() || cli.print_key) {

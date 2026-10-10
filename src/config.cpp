@@ -516,6 +516,7 @@ namespace config {
     "1920x1080x60",  // fallback_mode
     false, // isolated Display
     false, // ignore_encoder_probe_failure
+    false, // portal_virtual_display
   };
 
   audio_t audio {
@@ -1178,6 +1179,7 @@ namespace config {
     bool_f(vars, "vaapi_strict_rc_buffer", video.vaapi.strict_rc_buffer);
 
     string_f(vars, "capture", video.capture);
+    bool_f(vars, "portal_virtual_display", video.portal_virtual_display);
     string_f(vars, "encoder", video.encoder);
     string_f(vars, "adapter_name", video.adapter_name);
     string_f(vars, "output_name", video.output_name);

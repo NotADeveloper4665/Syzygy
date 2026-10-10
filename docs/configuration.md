@@ -3018,3 +3018,11 @@ editing the `conf` file in a text editor. Use the examples as reference.
   <summary></summary>
   [TOC]
 </details>
+
+### Syzygy Linux portal virtual monitor
+
+`portal_virtual_display = enabled` requests a new Wayland virtual monitor through
+the ScreenCast portal instead of sharing a physical monitor. Defaults to disabled.
+It requires portal virtual-source support and a logged-in Wayland desktop.
+`syzygy -s -auto -virtual` selects this mode from the CLI. See [CLI documentation](syzygy.md)
+for lifecycle and resolution limits.

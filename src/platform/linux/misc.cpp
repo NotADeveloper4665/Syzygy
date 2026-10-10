@@ -925,6 +925,12 @@ std::string get_local_ip_for_gateway() {
   std::vector<std::string> portal_display_names();
   std::shared_ptr<display_t> portal_display(mem_type_e hwdevice_type, const std::string &display_name, const video::config_t &config);
 
+  void shutdown_portal();
+  class portal_deinit_t: public deinit_t {
+  public:
+    ~portal_deinit_t() override { shutdown_portal(); }
+  };
+
   bool verify_portal() {
     return !portal_display_names().empty();
   }
@@ -1012,6 +1018,11 @@ std::string get_local_ip_for_gateway() {
     // These are allowed to fail.
     gbm::init();
 
+    if ((config::video.capture == "portal" || config::video.portal_virtual_display) &&
+        (!std::getenv("WAYLAND_DISPLAY") || !std::getenv("XDG_RUNTIME_DIR"))) {
+      BOOST_LOG(error) << "Portal capture requires a logged-in Wayland desktop session. Start Syzygy in that user's desktop terminal; a virtual monitor does not create a login session."sv;
+      return nullptr;
+    }
     window_system = window_system_e::NONE;
 #ifdef SUNSHINE_BUILD_WAYLAND
     if (std::getenv("WAYLAND_DISPLAY")) {
@@ -1075,7 +1086,11 @@ std::string get_local_ip_for_gateway() {
       BOOST_LOG(warning) << "Couldn't load EGL library"sv;
     }
 
+#ifdef SUNSHINE_BUILD_PORTAL
+    return std::make_unique<portal_deinit_t>();
+#else
     return std::make_unique<deinit_t>();
+#endif
   }
 
   class linux_high_precision_timer: public high_precision_timer {

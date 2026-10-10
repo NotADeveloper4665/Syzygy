@@ -275,7 +275,8 @@ namespace logging {
       << "    --version                 | print the version of Syzygy"sv << std::endl
       << "    Syzygy shortcuts (Linux)"sv << std::endl
       << "        -s       | start the host (passkey pairing is enabled on normal Linux startup)"sv << std::endl
-      << "        -auto    | clear saved encoder/capture overrides and auto-detect both"sv << std::endl
+      << "        -virtual | create a Linux portal virtual monitor (desktop session required)"sv << std::endl
+      << "        -auto    | auto-detect backends; retain explicit command-line overrides"sv << std::endl
       << "        -nvec    | select NVENC (-nvenc is also accepted)"sv << std::endl
       << "        -vaapi   | select VA-API; -software selects software encoding"sv << std::endl
       << "        -h264    | disable HEVC and AV1 advertisement"sv << std::endl

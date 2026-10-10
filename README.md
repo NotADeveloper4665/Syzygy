@@ -8,6 +8,7 @@ Syzygy is a self-hosted streaming host for compatible Moonlight clients, with CL
 - PIN-free Eclipse pairing with a persistent passkey shown on interactive Linux startup. Anyone holding it can pair with full host permissions; paired devices reconnect without entering it again.
 - Cryptographically random passkey with private file permissions and atomic creation.
 - Linux source installer for apt, dnf, zypper, pacman, and apk systems. It installs build dependencies, builds the server, and prints the host key and automatic-mode start command.
+- Opt-in Linux Wayland portal virtual monitor: `syzygy -s -auto -virtual -psk`. Requires a logged-in desktop and portal advertising virtual-monitor support; client-driven resizing is pending.
 - Automated Linux build and tests for key storage, concurrency, unsafe files, argument handling, and stdout redaction.
 
 ```sh
@@ -26,7 +27,7 @@ Install the Syzygy server and build dependencies, generate your host key, and ge
 curl -fsSL https://raw.githubusercontent.com/NotADeveloper4665/Syzygy/main/scripts/install-syzygy.sh | bash
 ```
 
-The installer supports apt, dnf, zypper, pacman, and apk. It requests sudo only when it needs to install system packages or write under `/usr/local`; the server build and host-key creation run as your user. It builds the latest `main` branch by default, leaves the server stopped, and prints your host key plus `syzygy -s -auto`. Automatic mode clears saved encoder and capture overrides, then probes the available host backends at startup. The key grants full host permissions; share it only with trusted clients. Set `SYZYGY_BRANCH` to choose a branch or tag. On distributions with another package manager, install the dependencies in [docs/building.md](docs/building.md) and build manually.
+The installer supports apt, dnf, zypper, pacman, and apk. It requests sudo only when it needs to install system packages or write under `/usr/local`; the server build and host-key creation run as your user. It builds the latest `main` branch by default, leaves the server stopped, and prints your host key plus `syzygy -s -auto`. Automatic mode clears saved encoder and capture overrides, retains explicit command-line selections, then probes the available host backends at startup. The key grants full host permissions; share it only with trusted clients. Set `SYZYGY_BRANCH` to choose a branch or tag. On distributions with another package manager, install the dependencies in [docs/building.md](docs/building.md) and build manually.
 
 ## Upstream and license
 

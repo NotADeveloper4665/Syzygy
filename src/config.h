@@ -149,6 +149,7 @@ namespace config {
     std::string fallback_mode;
     bool isolated_virtual_display_option;
     bool ignore_encoder_probe_failure;
+    bool portal_virtual_display;  ///< Request a compositor-created monitor through the Linux portal.
   };
 
   struct audio_t {

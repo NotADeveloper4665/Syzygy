@@ -10,6 +10,8 @@ namespace syzygy {
     bool print_key = false;
     bool automatic = false;
     bool encoder_override = false;
+    bool capture_override = false;
+    bool virtual_display = false;
   };
 
   // Preserve Apollo's argument grammar while translating Syzygy shortcuts.

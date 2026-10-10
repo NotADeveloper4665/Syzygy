@@ -26,6 +26,8 @@
 #include "cuda.h"
 #include "graphics.h"
 #include "src/main.h"
+#include "src/config.h"
+#include "src/syzygy/virtual_display.h"
 #include "src/platform/common.h"
 #include "src/video.h"
 #include "vaapi.h"
@@ -46,7 +48,7 @@ namespace {
   constexpr uint32_t CURSOR_MODE_EMBEDDED = 2;
 
   constexpr uint32_t PERSIST_FORGET = 0;
-  constexpr uint32_t PERSIST_WHILE_RUNNING = 2;
+  constexpr uint32_t PERSIST_UNTIL_REVOKED = 2;
 
   // Portal D-Bus interface names and paths
   constexpr const char *PORTAL_NAME = "org.freedesktop.portal.Desktop";
@@ -80,6 +82,8 @@ namespace portal {
     }
 
     static void load() {
+      token_->clear();
+      if (config::video.portal_virtual_display) return;
       std::ifstream file(get_file_path());
       if (file.is_open()) {
         std::getline(file, *token_);
@@ -90,7 +94,7 @@ namespace portal {
     }
 
     static void save() {
-      if (token_->empty()) {
+      if (config::video.portal_virtual_display || token_->empty()) {
         return;
       }
       std::ofstream file(get_file_path());
@@ -141,9 +145,17 @@ namespace portal {
     int n_modifiers;
   };
 
+  struct geometry_t {
+    int x = 0;
+    int y = 0;
+    bool has_position = false;
+    std::string mapping_id;
+  };
+
   class dbus_t {
   public:
     ~dbus_t() {
+      close_session();
       if (screencast_proxy) {
         g_object_unref(screencast_proxy);
       }
@@ -160,6 +172,7 @@ namespace portal {
 
       conn = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, nullptr);
       if (!conn) {
+        BOOST_LOG(error) << "No desktop session bus. Start Syzygy from the logged-in desktop terminal."sv;
         return -1;
       }
       remote_desktop_proxy = g_dbus_proxy_new_sync(conn, G_DBUS_PROXY_FLAGS_NONE, nullptr, PORTAL_NAME, PORTAL_PATH, REMOTE_DESKTOP_IFACE, nullptr, nullptr);
@@ -171,6 +184,14 @@ namespace portal {
         return -1;
       }
 
+      if (config::video.portal_virtual_display) {
+        g_autoptr(GVariant) types = g_dbus_proxy_get_cached_property(screencast_proxy, "AvailableSourceTypes");
+        if (!types || !g_variant_is_of_type(types, G_VARIANT_TYPE_UINT32) ||
+            !syzygy::portal_supports_virtual(g_variant_get_uint32(types))) {
+          BOOST_LOG(error) << "The desktop portal does not advertise virtual-monitor support. Use a supporting Wayland compositor/portal or omit -virtual."sv;
+          return -1;
+        }
+      }
       return 0;
     }
 
@@ -181,7 +202,8 @@ namespace portal {
       create_session_path(conn, nullptr, &session_token);
 
       // Try combined RemoteDesktop + ScreenCast session first
-      bool use_screencast_only = !try_remote_desktop_session(loop, &session_path, session_token);
+      bool use_screencast_only = config::video.portal_virtual_display ||
+                                 !try_remote_desktop_session(loop, &session_path, session_token);
 
       // Fall back to ScreenCast-only if RemoteDesktop failed
       if (use_screencast_only && try_screencast_only_session(loop, &session_path) < 0) {
@@ -208,6 +230,7 @@ namespace portal {
 
       if (select_remote_desktop_devices(loop, *session_path) < 0) {
         BOOST_LOG(warning) << "RemoteDesktop.SelectDevices failed, falling back to ScreenCast-only mode"sv;
+        close_session();
         g_free(*session_path);
         *session_path = nullptr;
         return false;
@@ -215,6 +238,7 @@ namespace portal {
 
       if (select_screencast_sources(loop, *session_path) < 0) {
         BOOST_LOG(warning) << "ScreenCast.SelectSources failed with RemoteDesktop session, trying ScreenCast-only mode"sv;
+        close_session();
         g_free(*session_path);
         *session_path = nullptr;
         return false;
@@ -236,15 +260,25 @@ namespace portal {
       return 0;
     }
 
-    int pipewire_fd;
-    int pipewire_node;
-    int width;
-    int height;
+    int pipewire_fd = -1;
+    int pipewire_node = 0;
+    int width = 0;
+    int height = 0;
+    geometry_t geometry;
 
   private:
-    GDBusConnection *conn;
-    GDBusProxy *screencast_proxy;
-    GDBusProxy *remote_desktop_proxy;
+    GDBusConnection *conn = nullptr;
+    GDBusProxy *screencast_proxy = nullptr;
+    GDBusProxy *remote_desktop_proxy = nullptr;
+    std::string active_session_path;
+
+    void close_session() {
+      if (!conn || active_session_path.empty()) return;
+      g_autoptr(GVariant) reply = g_dbus_connection_call_sync(conn, PORTAL_NAME,
+          active_session_path.c_str(), "org.freedesktop.portal.Session", "Close",
+          nullptr, nullptr, G_DBUS_CALL_FLAGS_NONE, 3000, nullptr, nullptr);
+      active_session_path.clear();
+    }
 
     int create_portal_session(GMainLoop *loop, gchar **session_path_out, const gchar *session_token, bool use_screencast) {
       GDBusProxy *proxy = use_screencast ? screencast_proxy : remote_desktop_proxy;
@@ -306,6 +340,7 @@ namespace portal {
         *session_path_out = g_strdup(g_variant_get_string(session_handle_v, nullptr));
       }
 
+      active_session_path = *session_path_out;
       BOOST_LOG(debug) << session_type << " CreateSession: got session handle: "sv << *session_path_out;
       return 0;
     }
@@ -322,8 +357,8 @@ namespace portal {
       g_variant_builder_add(&builder, "o", session_path);
       g_variant_builder_open(&builder, G_VARIANT_TYPE("a{sv}"));
       g_variant_builder_add(&builder, "{sv}", "handle_token", g_variant_new_string(request_token));
-      g_variant_builder_add(&builder, "{sv}", "persist_mode", g_variant_new_uint32(PERSIST_WHILE_RUNNING));
-      if (!restore_token_t::empty()) {
+      g_variant_builder_add(&builder, "{sv}", "persist_mode", g_variant_new_uint32(config::video.portal_virtual_display ? PERSIST_FORGET : PERSIST_UNTIL_REVOKED));
+      if (!config::video.portal_virtual_display && !restore_token_t::empty()) {
         g_variant_builder_add(&builder, "{sv}", "restore_token", g_variant_new_string(restore_token_t::get().c_str()));
       }
       g_variant_builder_close(&builder);
@@ -371,10 +406,10 @@ namespace portal {
       g_variant_builder_add(&builder, "o", session_path);
       g_variant_builder_open(&builder, G_VARIANT_TYPE("a{sv}"));
       g_variant_builder_add(&builder, "{sv}", "handle_token", g_variant_new_string(request_token));
-      g_variant_builder_add(&builder, "{sv}", "types", g_variant_new_uint32(SOURCE_TYPE_MONITOR));
+      g_variant_builder_add(&builder, "{sv}", "types", g_variant_new_uint32(config::video.portal_virtual_display ? syzygy::portal_virtual_source : SOURCE_TYPE_MONITOR));
       g_variant_builder_add(&builder, "{sv}", "cursor_mode", g_variant_new_uint32(CURSOR_MODE_EMBEDDED));
-      g_variant_builder_add(&builder, "{sv}", "persist_mode", g_variant_new_uint32(PERSIST_WHILE_RUNNING));
-      if (!restore_token_t::empty()) {
+      g_variant_builder_add(&builder, "{sv}", "persist_mode", g_variant_new_uint32(config::video.portal_virtual_display ? PERSIST_FORGET : PERSIST_UNTIL_REVOKED));
+      if (!config::video.portal_virtual_display && !restore_token_t::empty()) {
         g_variant_builder_add(&builder, "{sv}", "restore_token", g_variant_new_string(restore_token_t::get().c_str()));
       }
       g_variant_builder_close(&builder);
@@ -463,7 +498,7 @@ namespace portal {
         return -1;
       }
 
-      if (const gchar *new_token = nullptr; g_variant_lookup(dict, "restore_token", "s", &new_token) && new_token && new_token[0] != '\0' && restore_token_t::get() != new_token) {
+      if (const gchar *new_token = nullptr; !config::video.portal_virtual_display && g_variant_lookup(dict, "restore_token", "s", &new_token) && new_token && new_token[0] != '\0' && restore_token_t::get() != new_token) {
         restore_token_t::set(new_token);
         restore_token_t::save();
       }
@@ -471,15 +506,33 @@ namespace portal {
       GVariantIter iter;
       g_autoptr(GVariant) value = nullptr;
       g_variant_iter_init(&iter, streams);
-      while (g_variant_iter_next(&iter, "(u@a{sv})", &out_pipewire_node, &value)) {
-        g_variant_lookup(value, "size", "(ii)", &out_width, &out_height, nullptr);
+      if (!g_variant_iter_next(&iter, "(u@a{sv})", &out_pipewire_node, &value)) {
+        BOOST_LOG(error) << "Portal returned no stream"sv;
+        return -1;
+      }
+      if (config::video.portal_virtual_display) {
+        guint32 source_type = 0;
+        if (!g_variant_lookup(value, "source_type", "u", &source_type) ||
+            !syzygy::portal_is_virtual(source_type)) {
+          BOOST_LOG(error) << "Portal did not return a virtual monitor; refusing physical-screen fallback"sv;
+          return -1;
+        }
+        BOOST_LOG(info) << "Virtual Wayland monitor created through the desktop portal"sv;
+      }
+      g_variant_lookup(value, "size", "(ii)", &out_width, &out_height);
+      geometry.has_position = g_variant_lookup(value, "position", "(ii)", &geometry.x, &geometry.y);
+      const gchar *mapping_id = nullptr;
+      if (g_variant_lookup(value, "mapping_id", "&s", &mapping_id)) geometry.mapping_id = mapping_id;
+      if (out_width <= 0 || out_height <= 0) {
+        BOOST_LOG(error) << "Portal returned no usable monitor dimensions"sv;
+        return -1;
       }
 
       return 0;
     }
 
     int open_pipewire_remote(const gchar *session_path, int &fd) {
-      GUnixFDList *fd_list;
+      g_autoptr(GUnixFDList) fd_list = nullptr;
       GVariant *msg = g_variant_new("(oa{sv})", session_path, nullptr);
 
       g_autoptr(GError) err = nullptr;
@@ -568,7 +621,7 @@ namespace portal {
      *
      * @return 0 on success, -1 on failure
      */
-    int get_or_create_session(int &pipewire_fd, int &pipewire_node, int &width, int &height) {
+    int get_or_create_session(int &pipewire_fd, int &pipewire_node, int &width, int &height, geometry_t &geometry) {
       std::scoped_lock lock(mutex_);
 
       if (valid_) {
@@ -577,6 +630,7 @@ namespace portal {
         pipewire_node = pipewire_node_;
         width = width_;
         height = height_;
+        geometry = geometry_;
         BOOST_LOG(debug) << "Reusing cached portal session"sv;
         return 0;
       }
@@ -584,6 +638,7 @@ namespace portal {
       // Create new session
       dbus_ = std::make_unique<dbus_t>();
       if (dbus_->init() < 0) {
+        dbus_.reset();
         return -1;
       }
       if (dbus_->connect_to_portal() < 0) {
@@ -596,6 +651,7 @@ namespace portal {
       pipewire_node_ = dbus_->pipewire_node;
       width_ = dbus_->width;
       height_ = dbus_->height;
+      geometry_ = dbus_->geometry;
       valid_ = true;
 
       // Return to caller (duplicate FD so each caller has their own)
@@ -603,6 +659,7 @@ namespace portal {
       pipewire_node = pipewire_node_;
       width = width_;
       height = height_;
+      geometry = geometry_;
 
       BOOST_LOG(debug) << "Created new portal session (cached)"sv;
       return 0;
@@ -645,6 +702,7 @@ namespace portal {
     int pipewire_node_ = 0;
     int width_ = 0;
     int height_ = 0;
+    geometry_t geometry_;
     bool valid_ = false;
   };
 
@@ -927,10 +985,34 @@ namespace portal {
       // Use cached portal session to avoid creating multiple screen recordings
       int pipewire_fd = -1;
       int pipewire_node = 0;
-      if (session_cache_t::instance().get_or_create_session(pipewire_fd, pipewire_node, width, height) < 0) {
+      geometry_t geometry;
+      if (session_cache_t::instance().get_or_create_session(pipewire_fd, pipewire_node, width, height, geometry) < 0) {
         return -1;
       }
 
+      // Map absolute input to the virtual output rather than the primary monitor.
+      offset_x = geometry.x;
+      offset_y = geometry.y;
+      env_width = width;
+      env_height = height;
+      bool positioned = geometry.has_position;
+      for (const auto &monitor : wl::monitors()) {
+        env_width = std::max(env_width, monitor->viewport.offset_x + monitor->viewport.width);
+        env_height = std::max(env_height, monitor->viewport.offset_y + monitor->viewport.height);
+        if (!geometry.mapping_id.empty() && monitor->name == geometry.mapping_id) {
+          offset_x = monitor->viewport.offset_x;
+          offset_y = monitor->viewport.offset_y;
+          positioned = true;
+        }
+      }
+      if (config::video.portal_virtual_display && !positioned) {
+        BOOST_LOG(error) << "Cannot locate the virtual monitor in the Wayland output layout; absolute input would target the wrong screen"sv;
+        close(pipewire_fd);
+        session_cache_t::instance().invalidate();
+        return -1;
+      }
+      env_width = std::max(env_width, offset_x + width);
+      env_height = std::max(env_height, offset_y + height);
       framerate = config.framerate;
 
       pipewire.init(pipewire_fd, pipewire_node);
@@ -1170,6 +1252,10 @@ namespace platf {
     }
 
     return portal;
+  }
+
+  void shutdown_portal() {
+    portal::session_cache_t::instance().invalidate();
   }
 
   std::vector<std::string> portal_display_names() {

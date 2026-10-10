@@ -1,4 +1,5 @@
 #include "syzygy/cli.h"
+#include "syzygy/virtual_display.h"
 #include "syzygy/key_store.h"
 #include "syzygy/pairing_auth.h"
 
@@ -43,13 +44,31 @@ int main() {
     require(parse({"syzygy", "-vaapi"}).arguments.back() == "encoder=vaapi", "VA-API encoder option");
     require(parse({"syzygy", "-software"}).arguments.back() == "encoder=software", "software encoder option");
     const auto automatic = parse({"syzygy", "-s", "-auto", "encoder=vaapi", "capture=kwin"});
-    require(automatic.start && automatic.automatic && !automatic.encoder_override && automatic.arguments == std::vector<std::string>({
+    require(automatic.start && automatic.automatic && automatic.encoder_override && automatic.capture_override && automatic.arguments == std::vector<std::string>({
       "syzygy", "encoder=vaapi", "capture=kwin"}),
-      "automatic mode must be represented without invalid empty config arguments");
+      "automatic mode preserves explicit capture and encoder values");
     const auto automatic_vaapi = parse({"syzygy", "-s", "-auto", "-vaapi"});
     require(automatic_vaapi.start && automatic_vaapi.automatic && automatic_vaapi.encoder_override
       && automatic_vaapi.arguments == std::vector<std::string>({"syzygy", "encoder=vaapi"}),
       "automatic capture selection can be combined with a forced VA-API encoder");
+    const auto virtual_host = parse({"syzygy", "-s", "-auto", "-virtual", "-psk"});
+    require(virtual_host.virtual_display && virtual_host.capture_override && virtual_host.automatic,
+      "virtual display retains portal selection in automatic mode");
+    require(virtual_host.arguments == std::vector<std::string>({"syzygy", "capture=portal", "portal_virtual_display=enabled"}),
+      "virtual display config is explicit and opt-in");
+    require(!parse({"syzygy", "-s", "-auto"}).virtual_display &&
+            !parse({"syzygy", "-auto"}).capture_override,
+      "normal automatic startup does not request a virtual monitor");
+    require(parse({"syzygy", "-auto", "capture=portal"}).capture_override &&
+            parse({"syzygy", "capture=portal", "-auto"}).capture_override,
+      "explicit portal capture survives auto in either argument order");
+    rejects([] { parse({"syzygy", "-virtual", "capture=kms"}); }, "virtual display rejects KMS capture");
+    rejects([] { parse({"syzygy", "capture=x11", "-virtual"}); }, "virtual display rejects X11 capture");
+    require(!syzygy::portal_supports_virtual(0) && !syzygy::portal_supports_virtual(3) &&
+            syzygy::portal_supports_virtual(4) && syzygy::portal_supports_virtual(7),
+      "require advertised virtual-monitor capability");
+    require(!syzygy::portal_is_virtual(1) && !syzygy::portal_is_virtual(2) && syzygy::portal_is_virtual(4),
+      "virtual mode cannot silently capture a physical screen or window");
     rejects([] { parse({"syzygy", "-nvec", "-software"}); }, "conflicting encoder flags must fail");
     const std::vector<std::string> legacy {"syzygy", "--creds", "test-user", "-psk"};
     auto command = parse(legacy);
