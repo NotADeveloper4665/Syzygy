@@ -66,6 +66,8 @@ namespace {
 
 using namespace std::literals;
 
+#include "pipewire_memory.h"
+
 namespace portal {
   // Forward declarations
   class session_cache_t;
@@ -728,6 +730,11 @@ namespace portal {
     return *instance_;
   }
 
+  class portal_img_t: public egl::img_descriptor_t {
+  public:
+    std::vector<std::uint8_t> pixels;
+  };
+
   class pipewire_t {
   public:
     pipewire_t():
@@ -815,6 +822,7 @@ namespace portal {
 
     void fill_img(platf::img_t *img) {
       pw_thread_loop_lock(loop);
+      img->data = nullptr;
 
       if (stream_data.current_buffer) {
         struct spa_buffer *buf;
@@ -833,8 +841,15 @@ namespace portal {
               img_descriptor->sd.offsets[i] = buf->datas[i].chunk->offset;
             }
           } else {
-            img->data = static_cast<std::uint8_t *>(buf->datas[0].data);
-            img->row_pitch = buf->datas[0].chunk->stride;
+            auto *snapshot = static_cast<portal_img_t *>(img);
+            const auto &plane = buf->datas[0];
+            const auto &chunk = *plane.chunk;
+            if (syzygy::pipewire::copy_memory_frame(snapshot->pixels, plane.data,
+                  std::min<std::uint64_t>(plane.maxsize, std::uint64_t(chunk.offset) + chunk.size),
+                  chunk.offset, chunk.stride, img->width, img->height)) {
+              img->data = snapshot->pixels.data();
+              img->row_pitch = img->width * 4;
+            }
           }
         }
       }
@@ -1081,7 +1096,7 @@ namespace portal {
 
     std::shared_ptr<platf::img_t> alloc_img() override {
       // Note: this img_t type is also used for memory buffers
-      auto img = std::make_shared<egl::img_descriptor_t>();
+      auto img = std::make_shared<portal_img_t>();
 
       img->width = width;
       img->height = height;
@@ -1164,8 +1179,9 @@ namespace portal {
         return -1;
       }
 
-      img->data = new std::uint8_t[img->height * img->row_pitch];
-      std::fill_n(img->data, img->height * img->row_pitch, 0);
+      auto *snapshot = static_cast<portal_img_t *>(img);
+      snapshot->pixels.assign(img->height * img->row_pitch, 0);
+      img->data = snapshot->pixels.data();
       return 0;
     }
 

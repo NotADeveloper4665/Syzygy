@@ -60,6 +60,8 @@ jobs:
           g++ -std=c++17 -Wall -Wextra -Werror -Isrc src/syzygy/cli.cpp src/syzygy/key_store.cpp src/syzygy/pairing_auth.cpp \
             tests/syzygy_smoke.cpp -lcrypto -pthread -o syzygy-smoke
           ./syzygy-smoke
+          g++ -std=c++17 -Wall -Wextra -Werror -Isrc tests/test_pipewire_memory.cpp -o pipewire-memory-smoke
+          ./pipewire-memory-smoke
       - name: Build RPM package
         env:
           RELEASE_VERSION: '0.0.7'
