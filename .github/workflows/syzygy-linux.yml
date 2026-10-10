@@ -58,6 +58,8 @@ jobs:
               dnf install -y /src/build-fedora/cpack_artifacts/*.rpm
               python3 /src/scripts/check-installed-assets.py
               python3 /src/scripts/check-passkey-pairing.py
+              timeout 90s runuser -u syzygy-ci -- env LIBGL_ALWAYS_SOFTWARE=1 \
+                python3 /src/scripts/check-headless-startup.py
               mkdir -p /src/installed-layout/usr/bin /src/installed-layout/usr/share
               cp /usr/bin/syzygy /src/installed-layout/usr/bin/
               cp -a /usr/share/syzygy /src/installed-layout/usr/share/

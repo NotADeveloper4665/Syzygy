@@ -11,7 +11,7 @@ from urllib.request import urlopen
 from urllib.parse import urljoin
 
 assets = Path('/usr/share/syzygy')
-for name in ('web/index.html', 'web/config.html', 'web/welcome.html',
+for name in ('scripts/syzygy-headless.py', 'web/index.html', 'web/config.html', 'web/welcome.html',
              'shaders/opengl/ConvertUV.frag', 'shaders/opengl/ConvertUV.vert',
              'shaders/opengl/ConvertY.frag', 'shaders/opengl/Scene.vert',
              'shaders/opengl/Scene.frag'):

@@ -1216,6 +1216,12 @@ namespace portal {
 
       auto egl_display = egl::make_display(wl_display.get());
       if (!egl_display) {
+        // A software-rendered private compositor may expose only SHM buffers.
+        // Capture still works through PipeWire and FFmpeg's memory upload path.
+        if (config::video.capture == "kwin") {
+          BOOST_LOG(info) << "Headless capture using shared-memory buffers (DMA-BUF unavailable)"sv;
+          return 0;
+        }
         return -1;
       }
 
