@@ -30,6 +30,29 @@ curl -fsSL https://raw.githubusercontent.com/NotADeveloper4665/Syzygy/main/scrip
 
 The installer supports apt, dnf, zypper, pacman, and apk. It requests sudo only when it needs to install system packages or write under `/usr/local`; the server build and host-key creation run as your user. It builds the latest `main` branch by default, leaves the server stopped, and prints your host key plus `syzygy -s -auto`. Automatic mode clears saved encoder and capture overrides, retains explicit command-line selections, then probes the available host backends at startup. The key grants full host permissions; share it only with trusted clients. Set `SYZYGY_BRANCH` to choose a branch or tag. On distributions with another package manager, install the dependencies in [docs/building.md](docs/building.md) and build manually.
 
+### Update development RPMs on Fedora
+
+Successful `main` builds publish a validated RPM to the rolling
+[development release](https://github.com/NotADeveloper4665/Syzygy/releases/tag/dev).
+Update without compiling or signing in to GitHub:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NotADeveloper4665/Syzygy/main/scripts/update-syzygy-dev-rpm.sh | bash
+```
+
+For a headless server, also install the private Wayland runtime:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NotADeveloper4665/Syzygy/main/scripts/update-syzygy-dev-rpm.sh | SYZYGY_INSTALL_HEADLESS=1 bash
+```
+
+The updater verifies the build checksum and Fedora version/CPU architecture,
+then installs with `dnf` dependency resolution. It reinstalls builds that share
+an RPM version and preserves configuration and pairing keys. Current RPMs target
+Fedora 44 x86_64. Reconnect SSH if render-group membership changed, and restart
+Syzygy using `/usr/bin/syzygy` to select the RPM instead of an older source install.
+The script leaves running servers alone and does not create or print a new key.
+
 ## Upstream and license
 
 Syzygy retains upstream source history, license notices, and dependency pins. See the preserved [upstream README](README.upstream.md) for original platform notes and Windows SudoVDA details.

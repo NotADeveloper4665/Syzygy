@@ -55,7 +55,8 @@ jobs:
           echo "VGEM_DRM_CARD=$virtual_card" >> "$GITHUB_ENV"
       - name: Test CLI and protected key storage
         run: |
-          bash -n scripts/install-syzygy.sh
+          bash -n scripts/install-syzygy.sh scripts/update-syzygy-dev-rpm.sh
+          python3 -m unittest discover -s tests -p "test_dev_rpm_updater.py"
           python3 -m unittest discover -s tests -p "test_headless_launcher.py"
           g++ -std=c++17 -Wall -Wextra -Werror -Isrc src/syzygy/cli.cpp src/syzygy/key_store.cpp src/syzygy/pairing_auth.cpp \
             tests/syzygy_smoke.cpp -lcrypto -pthread -o syzygy-smoke
