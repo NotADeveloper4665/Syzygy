@@ -52,6 +52,8 @@ an RPM version and preserves configuration and pairing keys. Current RPMs target
 Fedora 44 x86_64. Reconnect SSH if render-group membership changed, and restart
 Syzygy using `/usr/bin/syzygy` to select the RPM instead of an older source install.
 The script leaves running servers alone and does not create or print a new key.
+The manifest and release notes link the exact RPM source commit; the `dev` tag
+anchors the download channel and its generated source archives remain fixed.
 
 ## Upstream and license
 

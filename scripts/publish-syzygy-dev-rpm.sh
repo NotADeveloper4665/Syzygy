@@ -23,12 +23,13 @@ manifest = {'schema': 1, 'rpm': 'Syzygy.rpm', 'fedora': 44, 'arch': 'x86_64',
             'sha256': hashlib.sha256(package.read_bytes()).hexdigest()}
 Path('dev-build.json').write_text(json.dumps(manifest, indent=2) + '\n')
 PY
-notes="Validated main build $SYZYGY_DEV_COMMIT. Fedora 44 x86_64. Update with scripts/update-syzygy-dev-rpm.sh. Build: https://github.com/$GITHUB_REPOSITORY/actions/runs/$SYZYGY_DEV_RUN"
+notes="Rolling RPM channel. RPM source: https://github.com/$GITHUB_REPOSITORY/tree/$SYZYGY_DEV_COMMIT. Validated main build $SYZYGY_DEV_COMMIT. Fedora 44 x86_64. Update with scripts/update-syzygy-dev-rpm.sh. Build: https://github.com/$GITHUB_REPOSITORY/actions/runs/$SYZYGY_DEV_RUN"
+# The dev tag anchors the channel at creation; the manifest and release notes
+# identify the actual tested RPM commit. Existing source archives are not updated.
 if gh release view dev >/dev/null 2>&1; then
-  gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/dev" -f sha="$SYZYGY_DEV_COMMIT" -F force=true
   gh release edit dev --title "Syzygy development RPM" --prerelease --latest=false --notes "$notes"
 else
-  gh release create dev --target "$SYZYGY_DEV_COMMIT" --title "Syzygy development RPM" --prerelease --latest=false --notes "$notes"
+  gh release create dev --target main --title "Syzygy development RPM" --prerelease --latest=false --notes "$notes"
 fi
 gh release upload dev "$rpm_path" --clobber
 # Update the manifest last. Mixed asset downloads fail verification and retry.
