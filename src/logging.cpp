@@ -281,7 +281,7 @@ namespace logging {
       << "        -nvec    | select NVENC (-nvenc is also accepted)"sv << std::endl
       << "        -vaapi   | select VA-API; -software selects software encoding"sv << std::endl
       << "        -h264    | disable HEVC and AV1 advertisement"sv << std::endl
-      << "        -tails   | authorize verified same-tailnet Linux devices without a phrase"sv << std::endl
+      << "        -tails   | Linux host: authorize verified same-tailnet devices without a phrase"sv << std::endl
       << "        -psk     | print the persistent six-word phrase; exits unless -s is given"sv << std::endl
       << "                 | enter this phrase in Eclipse or Occultation to pair without a PIN"sv << std::endl
       << std::endl

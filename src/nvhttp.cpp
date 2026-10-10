@@ -765,7 +765,7 @@ namespace nvhttp {
         return;
       }
       const auto now = std::chrono::steady_clock::now();
-      const bool tails = get_arg(args, "syzygytails") == "1";
+      const bool tails = get_arg(args, "syzygytails", "0") == "1";
       const auto remote = net::addr_to_normalized_string(request->remote_endpoint().address());
       const auto local = net::addr_to_normalized_string(request->local_endpoint().address());
       if (syzygy_phase->second == "challenge"sv && !pairing_attempts.allow(remote, now)) {
@@ -779,8 +779,8 @@ namespace nvhttp {
         return;
       }
       if (syzygy_phase->second == "challenge"sv) {
-        const auto certificate_hex = get_arg(args, "clientcert");
-        const auto device_name = get_arg(args, "devicename");
+        const auto certificate_hex = get_arg(args, "clientcert", "");
+        const auto device_name = get_arg(args, "devicename", "");
         if (certificate_hex.empty() || certificate_hex.size() > 32768 || device_name.size() > 256) {
           tree.put("root.<xmlattr>.status_code", 400);
           tree.put("root.<xmlattr>.status_message", "Invalid Syzygy pairing identity or certificate");
@@ -835,8 +835,8 @@ namespace nvhttp {
           pending = std::move(it->second);
           host_key_pairings.erase(it);  // A challenge is consumed even by a failed proof.
         }
-        const auto certificate_hex = get_arg(args, "clientcert");
-        const auto signature_hex = get_arg(args, "clientsignature");
+        const auto certificate_hex = get_arg(args, "clientcert", "");
+        const auto signature_hex = get_arg(args, "clientsignature", "");
         if (certificate_hex.empty() || certificate_hex.size() > 32768 || signature_hex.empty() || signature_hex.size() > 8192) {
           tree.put("root.<xmlattr>.status_code", 400);
           tree.put("root.<xmlattr>.status_message", "Invalid Syzygy pairing proof format");
@@ -845,7 +845,7 @@ namespace nvhttp {
         auto supplied_cert = util::from_hex_vec(certificate_hex, true);
         std::string certificate(supplied_cert.begin(), supplied_cert.end());
         auto client_cert = crypto::x509(pending.certificate);
-        const auto proof = get_arg(args, "syzygyproof");
+        const auto proof = get_arg(args, "syzygyproof", "");
         const auto signature_bytes = util::from_hex_vec(signature_hex, true);
         const std::string signature(signature_bytes.begin(), signature_bytes.end());
         const bool valid = tails == pending.tails && remote == pending.remote && local == pending.local &&
