@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <iostream>
 #include <poll.h>
 #include <stdexcept>
 #include <string>
@@ -28,10 +29,12 @@ namespace syzygy::headless {
       if (display) return node != 0 && !failed;
       if (!active()) return false;
       display = wl_display_connect(nullptr);
-      if (!display) return false;
+      if (!display) { std::cerr << "Syzygy headless: cannot connect to private Wayland display\n"; return false; }
       registry = wl_display_get_registry(display);
       wl_registry_add_listener(registry, &registry_events, this);
       if (wl_display_roundtrip(display) < 0 || !manager || !output || !input) {
+        std::cerr << "Syzygy headless: required interfaces: screencast=" << bool(manager)
+                  << " output=" << bool(output) << " input=" << bool(input) << "\n";
         close(); return false;
       }
       if (wl_display_roundtrip(display) < 0) { close(); return false; }
@@ -47,7 +50,11 @@ namespace syzygy::headless {
         pollfd fd {wl_display_get_fd(display), POLLIN, 0};
         if (poll(&fd, 1, 100) > 0 && wl_display_dispatch(display) < 0) break;
       }
-      if (!node || failed || width <= 0 || height <= 0) { close(); return false; }
+      if (!node || failed || width <= 0 || height <= 0) {
+        std::cerr << "Syzygy headless: capture node=" << node << " failed=" << failed
+                  << " size=" << width << "x" << height << "\n";
+        close(); return false;
+      }
       return true;
     }
     int node_id() const { return node; }
@@ -103,7 +110,10 @@ namespace syzygy::headless {
     }
     static void closed(void *data, zkde_screencast_stream_unstable_v1 *) { static_cast<kwin_session *>(data)->failed = true; }
     static void created(void *data, zkde_screencast_stream_unstable_v1 *, uint32_t node) { static_cast<kwin_session *>(data)->node = node; }
-    static void failure(void *data, zkde_screencast_stream_unstable_v1 *, const char *) { static_cast<kwin_session *>(data)->failed = true; }
+    static void failure(void *data, zkde_screencast_stream_unstable_v1 *, const char *message) {
+      std::cerr << "Syzygy headless: KWin screencast failed: " << (message ? message : "unknown error") << "\n";
+      static_cast<kwin_session *>(data)->failed = true;
+    }
     static void serial(void *, zkde_screencast_stream_unstable_v1 *, uint32_t, uint32_t) {}
     inline static constexpr wl_registry_listener registry_events {global, removed};
     inline static constexpr wl_output_listener output_events {geometry, mode, nullptr, nullptr, nullptr, nullptr};

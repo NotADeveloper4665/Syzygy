@@ -14,7 +14,7 @@ import tempfile
 import time
 
 DEPENDENCIES = ('dbus-run-session', 'kwin_wayland', 'plasmashell', 'Xwayland',
-                'pipewire', 'wireplumber', 'pipewire-pulse', 'pactl')
+                'pipewire', 'wireplumber', 'pipewire-pulse', 'pactl', 'kbuildsycoca6')
 
 
 def size(value):
@@ -31,6 +31,7 @@ def private_environment(source, runtime, binary):
                 'PIPEWIRE_REMOTE', 'PIPEWIRE_RUNTIME_DIR', 'KWIN_DRM_DEVICES'):
         env.pop(key, None)
     env.update(XDG_RUNTIME_DIR=str(runtime), XDG_DATA_HOME=str(runtime / 'data'),
+               XDG_CACHE_HOME=str(runtime / 'cache'),
                XDG_SESSION_TYPE='wayland', XDG_CURRENT_DESKTOP='KDE',
                SYZYGY_HEADLESS_SESSION='1', SYZYGY_HEADLESS_BINARY=str(binary),
                QT_QPA_PLATFORM='wayland')
@@ -110,6 +111,9 @@ def session(binary, arguments):
     runtime = Path(env['XDG_RUNTIME_DIR'])
     width, height = size(env.get('SYZYGY_HEADLESS_SIZE', '1920x1080'))
     try:
+        # Build the permission registry before the compositor or any client connects.
+        # Keep it private so an existing user's KDE cache cannot hide this entry.
+        subprocess.run(['kbuildsycoca6', '--noincremental'], env=env, check=True, timeout=30)
         children.start(['pipewire'], env)
         wait_for(lambda: (runtime / 'pipewire-0').exists(), children, 'PipeWire')
         children.start(['wireplumber'], env)

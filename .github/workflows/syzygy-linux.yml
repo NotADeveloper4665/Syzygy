@@ -43,17 +43,22 @@ jobs:
                 openssl-devel opus-devel pulseaudio-libs-devel systemd-udev systemd-rpm-macros desktop-file-utils \
                 libappstream-glib wayland-devel kwin-wayland plasma-workspace xorg-x11-server-Xwayland \
                 pipewire pipewire-pulseaudio wireplumber pulseaudio-utils dbus-daemon python3 mesa-dri-drivers
+              mkdir -p /tmp/headless-protocols
+              for protocol in zkde-screencast-unstable-v1 fake-input; do
+                wayland-scanner client-header /src/protocols/$protocol.xml /tmp/headless-protocols/$protocol.h
+                wayland-scanner private-code /src/protocols/$protocol.xml /tmp/headless-protocols/$protocol.c
+              done
+              gcc -c /tmp/headless-protocols/zkde-screencast-unstable-v1.c /tmp/headless-protocols/fake-input.c $(pkg-config --cflags wayland-client)
+              g++ -std=c++17 -Isrc -I/tmp/headless-protocols tests/headless_capture_smoke.cpp \
+                zkde-screencast-unstable-v1.o fake-input.o $(pkg-config --cflags --libs wayland-client libpipewire-0.3) \
+                -pthread -o /tmp/headless-capture-smoke
+              useradd -m syzygy-ci
+              timeout 90s runuser -u syzygy-ci -- env SYZYGY_HEADLESS_SIZE=640x480 LIBGL_ALWAYS_SOFTWARE=1 QT_LOGGING_RULES="kwin_core.debug=true;KWIN_UTILS.debug=true" \
+                python3 /src/src_assets/linux/assets/scripts/syzygy-headless.py --binary /tmp/headless-capture-smoke
               cmake -S /src -B /src/build-fedora -G Ninja -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_INSTALL_PREFIX=/usr -DSUNSHINE_ENABLE_CUDA=OFF -DSUNSHINE_ENABLE_TRAY=OFF -DBUILD_TESTS=OFF \
                 -DSUNSHINE_ASSETS_DIR=/usr/share/syzygy -DSUNSHINE_EXECUTABLE_PATH=/usr/bin/syzygy
               cmake --build /src/build-fedora --parallel 2
-              gcc -c /src/build-fedora/generated-src/zkde-screencast-unstable-v1.c /src/build-fedora/generated-src/fake-input.c $(pkg-config --cflags wayland-client)
-              g++ -std=c++17 -Isrc -I/src/build-fedora/generated-src tests/headless_capture_smoke.cpp \
-                zkde-screencast-unstable-v1.o fake-input.o $(pkg-config --cflags --libs wayland-client libpipewire-0.3) \
-                -pthread -o /tmp/headless-capture-smoke
-              useradd -m syzygy-ci
-              timeout 90s runuser -u syzygy-ci -- env SYZYGY_HEADLESS_SIZE=640x480 LIBGL_ALWAYS_SOFTWARE=1 \
-                python3 /src/src_assets/linux/assets/scripts/syzygy-headless.py --binary /tmp/headless-capture-smoke
               cpack --config /src/build-fedora/CPackConfig.cmake -G RPM
               dnf install -y /src/build-fedora/cpack_artifacts/*.rpm
               python3 /src/scripts/check-installed-assets.py
