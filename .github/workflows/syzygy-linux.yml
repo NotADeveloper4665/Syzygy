@@ -21,7 +21,24 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libssl-dev
+          sudo apt-get install -y build-essential libssl-dev ripgrep kmod
+      - name: Prepare virtual DRM device for displayless capture tests
+        run: |
+          if ! sudo modprobe vgem; then
+            sudo apt-get install -y "linux-modules-extra-$(uname -r)"
+            sudo modprobe vgem
+          fi
+          virtual_card=""
+          for card in /sys/class/drm/card[0-9]*; do
+            [ -f "$card/device/uevent" ] || continue
+            if rg -q '^DRIVER=vgem$' "$card/device/uevent" || [ "$(basename "$(readlink -f "$card/device/driver/module")")" = vgem ]; then
+              virtual_card="/dev/dri/$(basename "$card")"
+              break
+            fi
+          done
+          [ -n "$virtual_card" ] || { echo "No vgem DRM card found" >&2; exit 1; }
+          sudo chmod 0666 "$virtual_card"
+          echo "VGEM_DRM_CARD=$virtual_card" >> "$GITHUB_ENV"
       - name: Test CLI and protected key storage
         run: |
           bash -n scripts/install-syzygy.sh
@@ -33,7 +50,7 @@ jobs:
         env:
           RELEASE_VERSION: '0.0.7'
         run: |
-          docker run --rm --cap-add SYS_NICE -e BUILD_VERSION="$RELEASE_VERSION" -e BRANCH=main -e COMMIT="$GITHUB_SHA" \
+          docker run --rm --cap-add SYS_NICE --device /dev/dri:/dev/dri -e CI=1 -e SYZYGY_CI_VGEM_CARD="$VGEM_DRM_CARD" -e BUILD_VERSION="$RELEASE_VERSION" -e BRANCH=main -e COMMIT="$GITHUB_SHA" \
             -v "$GITHUB_WORKSPACE:/src" -w /src fedora:44 bash -euc '
               dnf install -y @development-tools gcc-c++ cmake ninja-build pkgconf-pkg-config rpm-build nodejs npm git curl wget which \
                 libcap-devel libcurl-devel libdrm-devel libevdev-devel libgudev-devel libnotify-devel libva-devel \
@@ -43,6 +60,11 @@ jobs:
                 openssl-devel opus-devel pulseaudio-libs-devel systemd-udev systemd-rpm-macros desktop-file-utils \
                 libappstream-glib wayland-devel kwin-wayland plasma-workspace xorg-x11-server-Xwayland \
                 pipewire pipewire-pulseaudio wireplumber pulseaudio-utils dbus-daemon python3 mesa-dri-drivers
+              # Older libdrm cannot enumerate vgem on the faux bus. KWin has a
+              # CI workaround that opens card1; alias only this virtual test device.
+              if [ "$SYZYGY_CI_VGEM_CARD" != /dev/dri/card1 ] && [ ! -e /dev/dri/card1 ]; then
+                ln -s "$SYZYGY_CI_VGEM_CARD" /dev/dri/card1
+              fi
               mkdir -p /tmp/headless-protocols
               for protocol in zkde-screencast-unstable-v1 fake-input; do
                 wayland-scanner client-header /src/protocols/$protocol.xml /tmp/headless-protocols/$protocol.h

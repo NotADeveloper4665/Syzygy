@@ -65,7 +65,8 @@ SYZYGY_HEADLESS_SIZE=2560x1440 syzygy -s -auto -headless -psk
 Stop with Ctrl+C. Syzygy cleans up only the processes and runtime directory it
 created. Applications launched through this host inherit the private desktop and
 audio output. Xwayland supports applications that use X11 inside the Wayland desktop.
-Hardware encoding still requires working vendor drivers and render-device access;
+KWin requires access to a working DRM render device, even with no monitor attached.
+Hardware encoding requires working vendor drivers;
 `-software` can select CPU encoding. This mode creates a separate desktop rather
 than attaching to another logged-in user’s desktop. Changing its display size during
 a stream and native touch/pen routing are not implemented yet. Gamepads require the
@@ -73,5 +74,5 @@ normal uinput permissions. Automatic headless dependency installation currently
 supports Fedora; other distributions need the listed runtime programs installed.
 
 GitHub CI builds the RPM and runs a real displayless KWin-to-PipeWire frame test
-with Mesa software rendering. Hardware-specific NVIDIA/Intel/AMD validation remains
+with a virtual vgem DRM device and Mesa software rendering. Hardware-specific NVIDIA/Intel/AMD validation remains
 necessary before treating headless mode as production-ready.
