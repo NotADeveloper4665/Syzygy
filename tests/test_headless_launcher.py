@@ -22,6 +22,7 @@ class LauncherTests(unittest.TestCase):
             self.assertIn(key, source)
         self.assertEqual(env['XDG_RUNTIME_DIR'], '/tmp/private')
         self.assertEqual(env['HOME'], '/home/test')
+        self.assertEqual(env['KWIN_COMPOSE'], 'O2')
 
     def test_size_validation(self):
         self.assertEqual(headless.size('1920x1080'), (1920, 1080))

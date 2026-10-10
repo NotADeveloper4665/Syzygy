@@ -34,7 +34,8 @@ def private_environment(source, runtime, binary):
                XDG_CACHE_HOME=str(runtime / 'cache'),
                XDG_SESSION_TYPE='wayland', XDG_CURRENT_DESKTOP='KDE',
                SYZYGY_HEADLESS_SESSION='1', SYZYGY_HEADLESS_BINARY=str(binary),
-               QT_QPA_PLATFORM='wayland')
+               QT_QPA_PLATFORM='wayland', KWIN_COMPOSE='O2',
+               QT_FORCE_STDERR_LOGGING='1', QT_LOGGING_TO_CONSOLE='1')
     return env
 
 
