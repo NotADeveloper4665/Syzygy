@@ -45,12 +45,12 @@ jobs:
           virtual_card=""
           for card in /sys/class/drm/card[0-9]*; do
             [ -f "$card/device/uevent" ] || continue
-            if rg -q '^DRIVER=vgem$' "$card/device/uevent" || [ "$(basename "$(readlink -f "$card/device/driver/module")")" = vgem ]; then
+            if [[ "$(basename "$(readlink -f "$card/device")")" == vgem* ]] || rg -q '^DRIVER=vgem$' "$card/device/uevent" || [ "$(basename "$(readlink -f "$card/device/driver/module")")" = vgem ]; then
               virtual_card="/dev/dri/$(basename "$card")"
               break
             fi
           done
-          [ -n "$virtual_card" ] || { echo "No vgem DRM card found" >&2; exit 1; }
+          [ -n "$virtual_card" ] || { ls -l /sys/class/drm /dev/dri; echo "No vgem DRM card found" >&2; exit 1; }
           sudo chmod 0666 "$virtual_card"
           echo "VGEM_DRM_CARD=$virtual_card" >> "$GITHUB_ENV"
       - name: Test CLI and protected key storage
