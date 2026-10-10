@@ -103,7 +103,8 @@ def desktop(binary, arguments):
         # Pass original shortcut semantics to Syzygy, with the private backend
         # taking precedence over saved portal/KMS settings.
         server = children.start([str(binary), *arguments, 'capture=kwin',
-                                 'portal_virtual_display=disabled'], env)
+                                 'portal_virtual_display=disabled',
+                                 'audio_sink=syzygy_headless', 'virtual_sink='], env)
         status = server.wait()
         (Path(env['XDG_RUNTIME_DIR']) / 'server-exit-status').write_text(str(status))
         return status

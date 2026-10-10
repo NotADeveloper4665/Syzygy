@@ -39,7 +39,9 @@ int main() {
   spa_video_info_raw info {};
   info.format = SPA_VIDEO_FORMAT_BGRx;
   info.size = SPA_RECTANGLE(640, 480);
-  info.framerate = SPA_FRACTION(60, 1);
+  // KWin advertises variable delivery with a separate maximum rate.
+  info.framerate = SPA_FRACTION(0, 1);
+  info.max_framerate = SPA_FRACTION(60, 1);
   const spa_pod *params[] {spa_format_video_raw_build(&builder, SPA_PARAM_EnumFormat, &info)};
   auto *pwloop = pw_main_loop_get_loop(loop);
   pw_loop_enter(pwloop);
