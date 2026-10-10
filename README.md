@@ -66,6 +66,9 @@ Stop with Ctrl+C. Syzygy cleans up only the processes and runtime directory it
 created. Applications launched through this host inherit the private desktop and
 audio output. Xwayland supports applications that use X11 inside the Wayland desktop.
 KWin requires access to a working DRM render device, even with no monitor attached.
+The Fedora headless installer adds the current user to `render` when needed;
+reconnect SSH after installation to apply new group membership.
+KDE settings are temporary; Syzygy configuration and pairing keys remain persistent.
 Hardware encoding requires working vendor drivers;
 `-software` can select CPU encoding. This mode creates a separate desktop rather
 than attaching to another logged-in user’s desktop. Changing its display size during

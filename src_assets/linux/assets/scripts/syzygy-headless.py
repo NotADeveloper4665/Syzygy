@@ -30,7 +30,12 @@ def private_environment(source, runtime, binary):
                 'DBUS_SESSION_BUS_PID', 'PULSE_SERVER', 'PULSE_RUNTIME_PATH',
                 'PIPEWIRE_REMOTE', 'PIPEWIRE_RUNTIME_DIR', 'KWIN_DRM_DEVICES'):
         env.pop(key, None)
+    # Keep host settings/key storage persistent while KDE uses disposable settings.
+    env['CONFIGURATION_DIRECTORY'] = (source.get('CONFIGURATION_DIRECTORY') or
+        source.get('XDG_CONFIG_HOME') or str(Path(source.get('HOME', str(Path.home()))) / '.config'))
+    env['SUNSHINE_MIGRATE_CONFIG'] = '0'
     env.update(XDG_RUNTIME_DIR=str(runtime), XDG_DATA_HOME=str(runtime / 'data'),
+               XDG_CONFIG_HOME=str(runtime / 'config'),
                XDG_CACHE_HOME=str(runtime / 'cache'),
                XDG_SESSION_TYPE='wayland', XDG_CURRENT_DESKTOP='KDE',
                SYZYGY_HEADLESS_SESSION='1', SYZYGY_HEADLESS_BINARY=str(binary),

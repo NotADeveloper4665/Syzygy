@@ -23,6 +23,15 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(env['XDG_RUNTIME_DIR'], '/tmp/private')
         self.assertEqual(env['HOME'], '/home/test')
         self.assertEqual(env['KWIN_COMPOSE'], 'O2')
+        self.assertEqual(env['XDG_CONFIG_HOME'], '/tmp/private/config')
+        self.assertEqual(env['CONFIGURATION_DIRECTORY'], '/home/test/.config')
+
+    def test_persistent_host_configuration_precedence(self):
+        for source, expected in (({'HOME': '/home/test', 'XDG_CONFIG_HOME': '/persist'}, '/persist'),
+                                 ({'XDG_CONFIG_HOME': '/persist', 'CONFIGURATION_DIRECTORY': '/service'}, '/service')):
+            env = headless.private_environment(source, Path('/tmp/private'), Path('/usr/bin/syzygy'))
+            self.assertEqual(env['CONFIGURATION_DIRECTORY'], expected)
+            self.assertEqual(env['SUNSHINE_MIGRATE_CONFIG'], '0')
 
     def test_size_validation(self):
         self.assertEqual(headless.size('1920x1080'), (1920, 1080))

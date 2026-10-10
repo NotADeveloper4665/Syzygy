@@ -108,6 +108,12 @@ if [[ "${SYZYGY_INSTALL_HEADLESS:-0}" == 1 && "$package_manager" != dnf ]]; then
 fi
 if [[ "${SYZYGY_INSTALL_HEADLESS:-0}" == 1 ]]; then
   as_root dnf install -y kwin-wayland plasma-workspace xorg-x11-server-Xwayland pipewire pipewire-pulseaudio wireplumber pulseaudio-utils dbus-daemon python3 mesa-dri-drivers
+  as_root install -d -m 1777 /tmp/.X11-unix
+  # SSH users do not receive the graphical-login ACL on GPU render nodes.
+  if ((EUID != 0)) && getent group render >/dev/null && [[ " $(id -nG) " != *" render "* ]]; then
+    as_root usermod -aG render "$(id -un)"
+    printf 'Added your account to the render group. Reconnect your SSH session before starting Syzygy.\n'
+  fi
 fi
 printf 'Installing Syzygy build dependencies with %s...\n' "$package_manager"
 install_dependencies "$package_manager"
