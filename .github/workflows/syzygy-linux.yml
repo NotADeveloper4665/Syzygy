@@ -79,6 +79,10 @@ jobs:
               if [ "$SYZYGY_CI_VGEM_CARD" != /dev/dri/card1 ] && [ ! -e /dev/dri/card1 ]; then
                 ln -s "$SYZYGY_CI_VGEM_CARD" /dev/dri/card1
               fi
+              # Package udev rules can reset the virtual device permissions.
+              chmod 0666 "$SYZYGY_CI_VGEM_CARD"
+              install -d -m 1777 /tmp/.X11-unix
+              ls -l /dev/dri
               mkdir -p /tmp/headless-protocols
               for protocol in zkde-screencast-unstable-v1 fake-input; do
                 wayland-scanner client-header /src/protocols/$protocol.xml /tmp/headless-protocols/$protocol.h
