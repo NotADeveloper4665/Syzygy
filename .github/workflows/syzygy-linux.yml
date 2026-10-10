@@ -76,7 +76,7 @@ jobs:
                 libXrandr-devel libXtst-devel mesa-libGL-devel mesa-libgbm-devel miniupnpc-devel numactl-devel \
                 openssl-devel opus-devel pulseaudio-libs-devel systemd-udev systemd-rpm-macros desktop-file-utils \
                 libappstream-glib wayland-devel kwin-wayland plasma-workspace xorg-x11-server-Xwayland \
-                pipewire pipewire-pulseaudio wireplumber pulseaudio-utils dbus-daemon python3 mesa-dri-drivers
+                pipewire pipewire-pulseaudio wireplumber pulseaudio-utils dbus-daemon dbus-tools python3 mesa-dri-drivers
               # Older libdrm cannot enumerate vgem on the faux bus. KWin has a
               # CI workaround that opens card1; alias only this virtual test device.
               if [ "$SYZYGY_CI_VGEM_CARD" != /dev/dri/card1 ] && [ ! -e /dev/dri/card1 ]; then

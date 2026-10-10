@@ -14,7 +14,8 @@ import tempfile
 import time
 
 DEPENDENCIES = ('dbus-run-session', 'kwin_wayland', 'plasmashell', 'Xwayland',
-                'pipewire', 'wireplumber', 'pipewire-pulse', 'pactl', 'kbuildsycoca6')
+                'pipewire', 'wireplumber', 'pipewire-pulse', 'pactl', 'kbuildsycoca6',
+                'dbus-update-activation-environment')
 
 
 def size(value):
@@ -99,6 +100,13 @@ def desktop(binary, arguments):
     children = Children()
     try:
         env = dict(os.environ)
+        # KWin supplies the private display to this child after D-Bus starts.
+        # Propagate it before Plasma activates its activity manager and portals.
+        # Never import into systemd's shared user manager (--systemd).
+        subprocess.run(['dbus-update-activation-environment',
+            'WAYLAND_DISPLAY', 'DISPLAY', 'XAUTHORITY', 'XDG_RUNTIME_DIR',
+            'XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE', 'QT_QPA_PLATFORM'],
+            env=env, check=True, timeout=20)
         children.start(['plasmashell'], env)
         # Pass original shortcut semantics to Syzygy, with the private backend
         # taking precedence over saved portal/KMS settings.
@@ -170,7 +178,7 @@ def main():
     if missing:
         raise RuntimeError('Missing headless programs: ' + ', '.join(missing) +
             '. Fedora: sudo dnf install kwin-wayland plasma-workspace xorg-x11-server-Xwayland '
-            'pipewire pipewire-pulseaudio wireplumber pulseaudio-utils dbus-daemon python3')
+            'pipewire pipewire-pulseaudio wireplumber pulseaudio-utils dbus-daemon dbus-tools python3')
     with tempfile.TemporaryDirectory(prefix=f'syzygy-headless-{os.getuid()}-') as directory:
         runtime = Path(directory)
         runtime.chmod(0o700)
