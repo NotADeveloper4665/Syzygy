@@ -202,8 +202,8 @@ int main(int argc, char *argv[]) {
   }
 
   if (config::video.portal_virtual_display) {
-#ifdef _WIN32
-    std::cerr << "-virtual / portal_virtual_display is a Linux-only option. Use SudoVDA on Windows.\n";
+#if !defined(__linux__)
+    std::cerr << "-virtual / portal_virtual_display is a Linux-only option.\n";
     return 2;
 #endif
     if (cli.capture_override && config::video.capture != "portal") {

@@ -129,6 +129,7 @@ namespace portal {
     GMainLoop *loop;
     GVariant *response;
     guint subscription_id;
+    GDBusConnection *connection;
   };
 
   struct stream_data_t {
@@ -545,7 +546,7 @@ namespace portal {
       int fd_handle;
       g_variant_get(reply, "(h)", &fd_handle);
       fd = g_unix_fd_list_get(fd_list, fd_handle, nullptr);
-      return 0;
+      return fd >= 0 ? 0 : -1;
     }
 
     static void on_response_received_cb([[maybe_unused]] GDBusConnection *connection, [[maybe_unused]] const gchar *sender_name, [[maybe_unused]] const gchar *object_path, [[maybe_unused]] const gchar *interface_name, [[maybe_unused]] const gchar *signal_name, GVariant *parameters, gpointer user_data) {
@@ -594,11 +595,23 @@ namespace portal {
 
     static void dbus_response_init(struct dbus_response_t *response, GMainLoop *loop, GDBusConnection *conn, const char *request_path) {
       response->loop = loop;
+      response->connection = conn;
       response->subscription_id = g_dbus_connection_signal_subscribe(conn, PORTAL_NAME, REQUEST_IFACE, "Response", request_path, nullptr, G_DBUS_SIGNAL_FLAGS_NONE, on_response_received_cb, response, nullptr);
     }
 
     static GVariant *dbus_response_wait(struct dbus_response_t *response) {
+      // Bound approval waits and detach callbacks before their stack storage expires.
+      GSource *timeout = g_timeout_source_new_seconds(120);
+      g_source_set_callback(timeout, [](gpointer loop) -> gboolean {
+        g_main_loop_quit(static_cast<GMainLoop *>(loop));
+        return G_SOURCE_REMOVE;
+      }, response->loop, nullptr);
+      g_source_attach(timeout, g_main_loop_get_context(response->loop));
       g_main_loop_run(response->loop);
+      g_source_destroy(timeout);
+      g_source_unref(timeout);
+      g_dbus_connection_signal_unsubscribe(response->connection, response->subscription_id);
+      if (!response->response) BOOST_LOG(error) << "Portal request timed out waiting for desktop approval"sv;
       return response->response;
     }
   };
