@@ -227,6 +227,15 @@ int main(int argc, char *argv[]) {
     return config_result < 0 ? 2 : 0;
   }
 
+#ifdef __linux__
+  if (const char *mode = std::getenv("SYZYGY_HEADLESS_SESSION"); mode && std::string_view(mode) == "1") {
+    // Saved physical audio devices do not exist in the private PipeWire session.
+    // Clear the optional virtual override here: the CLI parser rejects empty values.
+    config::audio.sink = "syzygy_headless";
+    config::audio.virtual_sink.clear();
+  }
+#endif
+
   if (cli.automatic) {
     // Clear stored manual backend selections after parsing the saved configuration.
     // Empty CLI values are rejected by the legacy config parser, so apply this mode directly.
