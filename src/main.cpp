@@ -32,7 +32,8 @@
   #include <unistd.h>
 #endif
 #ifdef __linux__
-  #include <sys/capability.h>
+  #include <linux/capability.h>
+  #include <sys/syscall.h>
   #include <sys/prctl.h>
 #endif
 
@@ -180,9 +181,9 @@ int main(int argc, char *argv[]) {
     // The RPM grants KMS capabilities. Native capture does not use them, and
     // retaining them prevents KWin from identifying /proc/<pid>/exe for its
     // executable permission check. Drop them before keys or sessions are loaded.
-    cap_t empty = cap_init();
-    const int result = empty ? cap_set_proc(empty) : -1;
-    if (empty) cap_free(empty);
+    __user_cap_header_struct header {_LINUX_CAPABILITY_VERSION_3, 0};
+    __user_cap_data_struct empty[2] {};
+    const long result = syscall(SYS_capset, &header, empty);
     if (result != 0 || prctl(PR_SET_DUMPABLE, 1, 0, 0, 0) != 0) {
       std::cerr << "Cannot enter unprivileged headless capture mode.\n";
       return 2;
