@@ -213,7 +213,7 @@ class Tunnel(QuicConnectionProtocol):
                 self.control = stream
                 self.kinds[stream] = 'control'
             elif spec.get('kind') == 'tcp' and spec.get('port') in (self.base-5, self.base+21) and self.server:
-                if sum(k == 'tcp' for k in self.kinds.values()) >= 16:
+                if len(self.writers) + sum(k == 'pending' for k in self.kinds.values()) >= 16:
                     raise RuntimeError('Too many TCP streams')
                 self.kinds[stream] = 'pending'
                 self.spawn(self.open_tcp(stream, spec['port']))
@@ -414,7 +414,7 @@ async def main_async(options):
         # do not have a public CA chain or necessarily contain a hostname SAN.
         configuration.verify_mode = ssl.CERT_NONE
         try:
-            async with connect(options.host, options.port, configuration=configuration, create_protocol=factory, retry=True) as tunnel:
+            async with connect(options.host, options.port, configuration=configuration, create_protocol=factory) as tunnel:
                 await asyncio.wait_for(tunnel.ready, 5)
                 print('SYZYGY_QUIC_READY', flush=True)
                 await done.wait()

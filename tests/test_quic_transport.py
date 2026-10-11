@@ -5,6 +5,7 @@ from pathlib import Path
 import ssl
 import tempfile
 import unittest
+import sys
 from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
 from aioquic.asyncio import serve, connect
@@ -62,11 +63,15 @@ class Tests(unittest.IsolatedAsyncioTestCase):
             try:
                 async with connect('127.0.0.1', port, configuration=conf,create_protocol=lambda *a, **kw: sq.Tunnel(*a,options=client_options,**kw)) as tunnel:
                     await asyncio.wait_for(tunnel.ready, 5)
-                    reader, writer=await asyncio.open_connection(client_options.local,base+21)
-                    writer.write(b'RTSP test')
-                    await writer.drain()
-                    self.assertEqual(await asyncio.wait_for(reader.readexactly(9),3), b'RTSP test')
-                    writer.close()
+                    # Sequential HTTPS/RTSP requests must not exhaust the active-stream cap.
+                    for request in range(20):
+                        reader, writer=await asyncio.open_connection(client_options.local,base+21)
+                        writer.write(b'RTSP test')
+                        await writer.drain()
+                        self.assertEqual(await asyncio.wait_for(reader.readexactly(9),3), b'RTSP test')
+                        writer.close()
+                        await writer.wait_closed()
+                        await asyncio.sleep(.01)
                     for p in (base+9,base+10,base+11):
                         loop=asyncio.get_running_loop()
                         import socket
@@ -104,6 +109,52 @@ class Tests(unittest.IsolatedAsyncioTestCase):
                 server.close()
                 tcp.close()
                 for t in transports:t.close()
+
+    async def test_packaged_cli_startup_and_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            host, hostcert, hostkey = credentials(root, 'host')
+            _, clientcert, clientkey = credentials(root, 'client')
+            state = root/'state.json'
+            state.write_text(json.dumps({'root': {'named_devices': [{'cert': Path(clientcert).read_text(), 'perm': 1 << 25}]}}))
+            processes = []
+            base = 33989
+            async def echo(reader, writer):
+                while data := await reader.read(16384):
+                    writer.write(data)
+                    await writer.drain()
+                writer.close()
+            tcp = await asyncio.start_server(echo, '127.0.0.1', base+21)
+            async def start(arguments, expected):
+                process = await asyncio.create_subprocess_exec(sys.executable, str(SCRIPT), *arguments,
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                processes.append(process)
+                line = await asyncio.wait_for(process.stdout.readline(), 8)
+                if not line.startswith(expected):
+                    self.fail('Helper startup failed: ' + (await process.stderr.read()).decode())
+                return line
+            try:
+                import socket
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reservation:
+                    reservation.bind(('127.0.0.1', 0))
+                    port = reservation.getsockname()[1]
+                await start(['server', '--host', '127.0.0.1', '--port', str(port), '--base', str(base),
+                    '--cert', hostcert, '--key', hostkey, '--state', str(state)], b'SYZYGY_QUIC_LISTENING')
+                await start(['client', '--host', '127.0.0.1', '--port', str(port), '--base', str(base),
+                    '--cert', clientcert, '--key', clientkey, '--pin', sq.fingerprint(host), '--local', '127.90.3.1'], b'SYZYGY_QUIC_READY')
+                reader, writer = await asyncio.open_connection('127.90.3.1', base+21)
+                writer.write(b'CLI RTSP')
+                await writer.drain()
+                self.assertEqual(await asyncio.wait_for(reader.readexactly(8), 3), b'CLI RTSP')
+                writer.close()
+                await writer.wait_closed()
+            finally:
+                for process in reversed(processes):
+                    if process.returncode is None:
+                        process.terminate()
+                        await asyncio.wait_for(process.wait(), 5)
+                tcp.close()
+                await tcp.wait_closed()
 
     def test_reassembly_limits_reordering(self):
         r=sq.Reassembly()
