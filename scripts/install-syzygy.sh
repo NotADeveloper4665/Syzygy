@@ -152,6 +152,10 @@ as_root cp -aL "$work_dir/source/build/assets" "$INSTALL_LIBDIR/assets"
 wrapper="$work_dir/syzygy-wrapper"
 cat >"$wrapper" <<WRAPPER
 #!/bin/sh
+# Syzygy launcher: prefer the managed system package.
+if [ '$INSTALL_BINDIR/syzygy' != /usr/bin/syzygy ] && [ -x /usr/bin/syzygy ]; then
+  exec /usr/bin/syzygy "\$@"
+fi
 cd '$INSTALL_LIBDIR' || exit 1
 exec '$INSTALL_LIBDIR/syzygy' "\$@"
 WRAPPER
@@ -162,7 +166,7 @@ if ! key="$("$INSTALL_BINDIR/syzygy" -psk)"; then
   printf 'Could not create the host key. Run %s/bin/syzygy -psk as the account that will run the server.\n' "$INSTALL_PREFIX" >&2
   exit 1
 fi
-if [[ ! "$key" =~ ^[0-9a-f]{48}$ ]]; then
+if [[ ! "$key" =~ ^[0-9a-f]{48}$ && ! "$key" =~ ^[a-z]+([[:space:]][a-z]+){5}$ ]]; then
   printf 'Syzygy returned an unexpected key format; run %s/bin/syzygy -psk to inspect it.\n' "$INSTALL_PREFIX" >&2
   exit 1
 fi

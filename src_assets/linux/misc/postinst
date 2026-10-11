@@ -1,5 +1,30 @@
 #!/bin/sh
 
+# Upgrade only the legacy source installer launcher that shadows /usr/bin.
+# Keep the old source installation as a fallback if the RPM is later removed.
+legacy_launcher=/usr/local/bin/syzygy
+if [ -x /usr/bin/syzygy ] && [ -f "$legacy_launcher" ] && [ ! -L "$legacy_launcher" ] &&
+   grep -Fq "exec '/usr/local/lib/syzygy/syzygy'" "$legacy_launcher"; then
+  launcher_tmp=$(mktemp /usr/local/bin/.syzygy-launcher.XXXXXX)
+  if [ -n "$launcher_tmp" ]; then
+    cat > "$launcher_tmp" <<'LAUNCHER'
+#!/bin/sh
+# Syzygy launcher: prefer the managed system package.
+if [ -x /usr/bin/syzygy ]; then
+  exec /usr/bin/syzygy "$@"
+fi
+cd /usr/local/lib/syzygy || exit 1
+exec /usr/local/lib/syzygy/syzygy "$@"
+LAUNCHER
+    if chmod 0755 "$launcher_tmp" && mv -f "$launcher_tmp" "$legacy_launcher"; then
+      echo "Syzygy command now selects the system package; source fallback retained."
+    else
+      rm -f "$launcher_tmp"
+      echo "Could not update the legacy Syzygy command launcher." >&2
+    fi
+  fi
+fi
+
 # Load uhid (DS5 emulation)
 echo "Loading uhid kernel module for DS5 emulation."
 modprobe uhid
@@ -10,7 +35,7 @@ if [ ! -x "$(command -v rpm-ostree)" ]; then
 
   # Ensure Sunshine can grab images from KMS
   path_to_setcap=$(which setcap)
-  path_to_sunshine=$(readlink -f "$(which sunshine)")
+  path_to_sunshine=/usr/bin/syzygy
   if [ -x "$path_to_setcap" ] ; then
     echo "Setting CAP_SYS_ADMIN capability on Syzygy binary."
     echo "$path_to_setcap cap_sys_admin+p $path_to_sunshine"
