@@ -22,6 +22,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libssl-dev libboost-dev libcurl4-openssl-dev ripgrep kmod
+      - name: Check authenticated QUIC transport
+        run: |
+          python3 -m venv /tmp/quic-test
+          /tmp/quic-test/bin/pip install aioquic==1.3.0
+          /tmp/quic-test/bin/python -m unittest discover -s tests -p "test_quic_transport.py"
       - name: Prepare virtual DRM device for displayless capture tests
         run: |
           if ! sudo modprobe vgem; then

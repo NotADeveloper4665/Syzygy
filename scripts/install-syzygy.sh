@@ -71,7 +71,7 @@ install_dependencies() {
         libx11-dev libxcb-shm0-dev libxcb-xfixes0-dev libxcb1-dev libxfixes-dev libxrandr-dev libxtst-dev
       ;;
     dnf)
-      as_root dnf install -y gcc gcc-c++ make cmake ninja-build pkgconf-pkg-config git curl nodejs npm \
+      as_root dnf install -y gcc gcc-c++ make cmake ninja-build pkgconf-pkg-config git curl nodejs npm python3-aioquic \
         glib2-devel pipewire-devel libcap-devel libcurl-devel libdrm-devel libevdev-devel mesa-libgbm-devel miniupnpc-devel \
         libnotify-devel numactl-devel opus-devel pulseaudio-libs-devel openssl-devel libva-devel \
         wayland-devel libX11-devel libxcb-devel libXfixes-devel libXrandr-devel libXtst-devel

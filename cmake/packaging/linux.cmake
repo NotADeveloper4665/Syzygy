@@ -81,6 +81,7 @@ set(CPACK_RPM_PACKAGE_REQUIRES "\
             pulseaudio-libs >= 10.0, \
             pipewire-libs, \
             python3, \
+            python3-aioquic >= 1.3.0, \
             which >= 2.21")
 
 if(NOT BOOST_USE_STATIC)

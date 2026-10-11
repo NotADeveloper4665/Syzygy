@@ -22,6 +22,8 @@ namespace syzygy {
         options.foreground = true;
       } else if (arg == "-s") {
         options.start = true;
+      } else if (arg == "-quic") {
+        options.quic = true;
       } else if (arg == "-tails") {
         options.tails = true;
       } else if (arg == "-psk") {

@@ -1,3 +1,4 @@
+#include "syzygy/quic_process.h"
 /**
  * @file src/main.cpp
  * @brief Definitions for the main entry point for Sunshine.
@@ -557,6 +558,19 @@ int main(int argc, char *argv[]) {
     return -1;
   }
 
+#ifdef __linux__
+  syzygy::quic_process quic_listener;
+  if (cli.quic) {
+    try {
+      quic_listener.start((std::filesystem::path(SUNSHINE_ASSETS_DIR) / "scripts/syzygy-quic.py").string(),
+                          config::nvhttp.cert, config::nvhttp.pkey, config::nvhttp.file_state, config::sunshine.port);
+      BOOST_LOG(info) << "QUIC transport listening on UDP " << (config::sunshine.port + 31);
+    } catch (const std::exception &error) {
+      BOOST_LOG(fatal) << error.what();
+      return 2;
+    }
+  }
+#endif
   std::unique_ptr<platf::deinit_t> mDNS;
   auto sync_mDNS = std::async(std::launch::async, [&mDNS]() {
     if (config::sunshine.enable_discovery) {

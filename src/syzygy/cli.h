@@ -14,6 +14,7 @@ namespace syzygy {
     bool virtual_display = false;
     bool headless = false;
     bool tails = false;
+    bool quic = false;
     bool status = false;
     bool stop = false;
     bool foreground = false;

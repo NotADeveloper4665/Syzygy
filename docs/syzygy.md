@@ -128,3 +128,32 @@ This is terminal-independent operation, not boot activation. On servers whose
 login policy kills all user processes at logout, configure a lingering user
 service separately. The managed start acknowledgement means the launcher
 started; use `-status` to inspect readiness and errors.
+
+### Experimental authenticated QUIC (Linux IPv4)
+
+Start `syzygy -s -auto -headless -tails -quic` to enable the SQ1 QUIC listener
+on UDP `base port + 31` (default 48020). Install `python3-aioquic` on the host
+and desktop client; RPMs require it. Allow that UDP port through your firewall
+or tailnet ACL as needed. Existing GameStream remains available.
+
+Eclipse's Network transport preference offers Automatic (prefer QUIC), Force
+QUIC (fail instead of falling back), and GameStream. Pair through the existing
+six-word or Tailscale flow first. Transport authentication pins the saved host
+certificate and signs a fresh host challenge using the already-paired client
+key. No pairing phrase is sent over this transport. The host rejects unknown,
+expired, and revoked certificates and checks streaming permission.
+
+One QUIC connection forwards pinned HTTPS launch and RTSP over separate reliable
+streams, ENet control packets over a reliable stream, and existing video/audio
+UDP packets over QUIC DATAGRAM. Fragment reassembly is bounded and expires after
+100 ms. This preserves existing media codecs, encryption and input permissions.
+The loopback relay is limited to HTTPS, RTSP and the three media/control ports;
+it is not a general-purpose proxy. HTTP launch occurs through the same private
+loopback identity used by the RTSP and UDP relays. Python process shutdown owns
+all sockets and helpers.
+
+This is a custom QUIC transport, not Kyber wire compatibility. It is currently
+an experimental Fedora/Linux IPv4 implementation; Flatpak/Windows deployment
+and Android are not included. CPU overhead and real-game latency must be measured
+before claiming an improvement. Automatic falls back only when QUIC is
+unavailable; certificate/authentication failures stop the connection.

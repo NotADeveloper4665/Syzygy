@@ -45,6 +45,7 @@ int main() {
     require(parse({"syzygy", "-nvenc"}).arguments.back() == "encoder=nvenc", "NVENC spelling alias");
     require(parse({"syzygy", "-vaapi"}).arguments.back() == "encoder=vaapi", "VA-API encoder option");
     require(parse({"syzygy", "-software"}).arguments.back() == "encoder=software", "software encoder option");
+    require(parse({"syzygy", "-s", "-quic"}).quic, "QUIC shortcut");
     require(parse({"syzygy", "-status"}).status, "Status shortcut");
     require(parse({"syzygy", "-stop"}).stop, "Stop shortcut");
     require(parse({"syzygy", "-s", "-foreground"}).foreground, "Foreground shortcut");

@@ -275,6 +275,7 @@ namespace logging {
       << "    --version                 | print the version of Syzygy"sv << std::endl
       << "    Syzygy shortcuts (Linux)"sv << std::endl
       << "        -s          | start in the background (terminal may close)"sv << std::endl
+      << "        -quic       | enable experimental authenticated QUIC on UDP base port + 31"sv << std::endl
       << "        -status     | show managed server, codecs, clients and recent errors"sv << std::endl
       << "        -stop       | stop the managed server and its private desktop"sv << std::endl
       << "        -foreground | keep -s attached for debugging/external supervisors"sv << std::endl
