@@ -1,0 +1,55 @@
+name: Publish validated QUIC release downloads
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-quic-release.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: publish-quic-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: b23f4ae8008b551145fe208c7de9caea58064cd6
+      RELEASE_TAG: v0.0.8
+    steps:
+      - name: Verify successful build provenance
+        run: |
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/38098998839 --jq '.head_sha')" = "$SOURCE_SHA"
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/38098998839 --jq '.conclusion')" = success
+      - uses: actions/download-artifact@v4
+        with:
+          name: syzygy-rpm
+          run-id: 38098998839
+          github-token: ${{ github.token }}
+          path: release-assets
+      - name: Publish downloadable release assets
+        run: |
+          cat > release-notes.md <<'NOTES'
+          Syzygy 0.0.8 adds experimental authenticated QUIC transport for Eclipse on Fedora/Linux IPv4.
+
+          - Enable the QUIC listener with -quic; default UDP port 48020.
+          - Authenticate paired client certificates with a fresh signed challenge.
+          - Pinned HTTPS and RTSP over reliable streams, reliable control delivery, and video/audio datagrams.
+          - Reject unknown/expired certificates and revoke active access when a device is removed.
+          - Six-word pairing and terminal-independent background operation.
+
+          Start: syzygy -s -auto -headless -tails -quic
+
+          Install the Fedora 44 x86_64 RPM through your package manager, then use Eclipse 0.5.6's Force QUIC option. The RPM requires python3-aioquic. Allow UDP 48020 as needed.
+
+          Experimental support: real-game streaming and latency remain unverified. Built from b23f4ae8008b551145fe208c7de9caea58064cd6; transport, CLI, RPM installation, pairing and headless checks passed.
+          NOTES
+          mapfile -d '' assets < <(find release-assets -type f \( -name '*.rpm' -o -name '*.zip' -o -name '*.flatpak' \) -print0)
+          test "${#assets[@]}" -gt 0
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$RELEASE_TAG" --title 'Syzygy 0.0.8 — authenticated QUIC preview' --notes-file release-notes.md --prerelease --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" --target "$SOURCE_SHA" --title 'Syzygy 0.0.8 — authenticated QUIC preview' --notes-file release-notes.md --prerelease --repo "$GITHUB_REPOSITORY"
+          fi
