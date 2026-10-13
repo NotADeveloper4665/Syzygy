@@ -1424,7 +1424,7 @@ namespace video {
     const auto oldMinRate = ctx->rc_min_rate;
     const auto oldBuffer = ctx->rc_buffer_size;
     bool bitrateChanged = false;
-    if (session.wan && session.wan->runtime_bitrate.load()) {
+    if (session.wan && session.wan->enabled && session.wan->runtime_bitrate.load()) {
       const auto bitrate = int64_t(session.wan->bitrate_kbps.load()) * 1000;
       bitrateChanged = ctx->bit_rate != bitrate;
       ctx->bit_rate = bitrate;
@@ -1853,7 +1853,7 @@ namespace video {
 
       if (config.wan) {
         const auto name = std::string(codec->name);
-        config.wan->runtime_bitrate.store(name == "libx264" || name.find("_nvenc") != std::string::npos);
+        config.wan->runtime_bitrate.store(config.wan->enabled && (name == "libx264" || name.find("_nvenc") != std::string::npos));
         config.wan->encoder_overrides.store(config.wan->enabled && retries == 0 && (name == "libx264" || name.find("_nvenc") != std::string::npos));
       }
       // Successfully opened the codec

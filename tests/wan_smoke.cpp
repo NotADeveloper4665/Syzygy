@@ -1,5 +1,6 @@
 #include "syzygy/wan.h"
 #include <cassert>
+#include <limits>
 int main() {
   syzygy::wan_state a, b;
   a.enabled = true;
@@ -34,4 +35,32 @@ int main() {
   assert(a.bitrate_kbps == bitrate); // Unsupported encoder retains its budget.
   a.last = std::chrono::steady_clock::now()-std::chrono::seconds(4);
   assert(a.current_fec() == 10);
+  // Disabled and uninitialized sessions cannot accept control feedback.
+  assert(!b.feedback(30, 0, 0));
+  b.enabled = true;
+  assert(!b.feedback(30, 0, 0));
+  assert(b.last.time_since_epoch().count() == 0);
+
+  // A telemetry outage must not count pre-outage samples toward recovery.
+  a.runtime_bitrate = true;
+  a.bitrate_kbps = 4000;
+  a.fec = 35;
+  a.stable = 4;
+  a.healthy_fec = 2;
+  a.last = std::chrono::steady_clock::now()-std::chrono::seconds(4);
+  assert(a.feedback(30, 0, 0));
+  assert(a.fec == 35);
+  assert(a.bitrate_kbps == 4000);
+
+  // Rate-control arithmetic must not overflow before enforcing the ceiling.
+  b.ceiling_kbps = std::numeric_limits<int>::max();
+  b.bitrate_kbps = b.ceiling_kbps;
+  b.runtime_bitrate = true;
+  auto now = std::chrono::steady_clock::now();
+  assert(b.feedback(30, 0, 60, now));
+  assert(b.bitrate_kbps > 0 && b.bitrate_kbps <= b.ceiling_kbps);
+  for (int i = 1; i <= 30; ++i) {
+    assert(b.feedback(30, 0, 0, now + std::chrono::seconds(i)));
+    assert(b.bitrate_kbps > 0 && b.bitrate_kbps <= b.ceiling_kbps);
+  }
 }
