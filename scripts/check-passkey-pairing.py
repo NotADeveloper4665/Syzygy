@@ -178,7 +178,9 @@ with tempfile.TemporaryDirectory(prefix='syzygy-pair-check-') as directory:
                 video.sendto(b'PING', ('127.0.0.1', 49208))
                 audio.sendto(b'PING', ('127.0.0.1', 49210))
                 try:
-                    for attempt in range(20):
+                    for attempt in range(40):
+                        video.sendto(b'PING', ('127.0.0.1', 49208))
+                        audio.sendto(b'PING', ('127.0.0.1', 49210))
                         feedback = request('eclipse-passkey-test-1', {}, context, 'wan')
                         if feedback.findtext('runtimeBitrate') == '1': break
                         time.sleep(.1)
@@ -205,6 +207,9 @@ with tempfile.TemporaryDirectory(prefix='syzygy-pair-check-') as directory:
                     print('PASS: real WAN session, software encoder, small UDP, isolated telemetry, congestion/loss adaptation and stale fallback')
                 finally:
                     video.close(); audio.close()
+        except Exception:
+            print((root / 'host.log').read_text(errors='replace')[-16000:])
+            raise
         finally:
             stop(process)
         process = start(log)
