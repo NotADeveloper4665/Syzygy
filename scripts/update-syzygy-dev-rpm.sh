@@ -14,6 +14,30 @@ fi
 (($# == 0)) || { printf 'Unexpected arguments; use --help.\n' >&2; exit 2; }
 command -v dnf >/dev/null || { printf 'This RPM updater requires Fedora and dnf.\n' >&2; exit 1; }
 as_root() { if ((EUID == 0)); then "$@"; else sudo "$@"; fi; }
+# BEGIN PATH REPAIR
+repair_local_syzygy() {
+  local shadow="$1" target="$2" backup
+  # Never replace a directory or a file managed by another RPM.
+  [[ ! -d "$shadow" && ( -f "$shadow" || -L "$shadow" ) ]] || return 1
+  [[ -x "$target" ]] || return 1
+  if [[ "$(readlink -f -- "$shadow")" == "$(readlink -f -- "$target")" ]]; then return 0; fi
+  if rpm -qf "$shadow" >/dev/null 2>&1; then return 1; fi
+  backup="$(as_root mktemp "${shadow}.pre-rpm.XXXXXXXX")" || return 1
+  if ! as_root mv -T -- "$shadow" "$backup"; then
+    as_root rm -f -- "$backup"
+    return 1
+  fi
+  if ! as_root ln -s -- "$target" "$shadow"; then
+    if [[ ! -e "$shadow" && ! -L "$shadow" ]]; then
+      as_root mv -T -- "$backup" "$shadow"
+    else
+      printf 'PATH repair could not finish; previous installation retained at %s\n' "$backup" >&2
+    fi
+    return 1
+  fi
+  printf 'Updated %s to use the RPM binary. Previous installation: %s\n' "$shadow" "$backup"
+}
+# END PATH REPAIR
 if ((EUID != 0)); then
   command -v sudo >/dev/null || { printf 'Install sudo first.\n' >&2; exit 1; }
 fi
@@ -106,6 +130,17 @@ if [[ "${SYZYGY_INSTALL_HEADLESS:-0}" == 1 ]]; then
 else
   printf 'Start: /usr/bin/syzygy -s -auto -psk\n'
 fi
-if [[ "$(command -v syzygy || true)" != /usr/bin/syzygy ]]; then
-  printf 'Your PATH resolves syzygy to another installation. Use /usr/bin/syzygy for this RPM.\n'
+hash -r
+resolved_syzygy="$(command -v syzygy || true)"
+rpm_binary="$(readlink -f -- /usr/bin/syzygy)"
+resolved_binary="$(readlink -f -- "$resolved_syzygy" 2>/dev/null || true)"
+if [[ "$resolved_binary" != "$rpm_binary" ]]; then
+  if [[ "$resolved_syzygy" == /usr/local/bin/syzygy ]] && repair_local_syzygy "$resolved_syzygy" /usr/bin/syzygy; then
+    hash -r
+    printf 'Run hash -r in your existing terminal, then start Syzygy normally.\n'
+  elif [[ -n "$resolved_syzygy" ]]; then
+    printf 'Another installation takes precedence: %s\nUse /usr/bin/syzygy, or remove that path override. No custom installation was changed.\n' "$resolved_syzygy"
+  else
+    printf 'Syzygy is not on this shell PATH. Start it with /usr/bin/syzygy.\n'
+  fi
 fi
