@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import ssl
+import socket
 import struct
 import subprocess
 import tempfile
@@ -66,7 +67,10 @@ with tempfile.TemporaryDirectory(prefix='syzygy-pair-check-') as directory:
 
     def start(log):
         # Deliberately omit -s: ordinary startup must enable passkey enrollment.
-        process = subprocess.Popen(['/usr/bin/syzygy', 'capture=x11', 'encoder=software', 'tails_pairing=enabled', 'port=49199'],
+        arguments = ['/usr/bin/syzygy', 'capture=x11', 'encoder=software', 'tails_pairing=enabled', 'port=49199']
+        if env.get('SYZYGY_WAN_INTEGRATION_ENABLED') == '1':
+            arguments = ['/usr/bin/syzygy', '-s', '-foreground', '-auto', '-headless', '-software', '-h264', 'tails_pairing=enabled', 'port=49199']
+        process = subprocess.Popen(arguments,
                                    cwd=directory, env=env, stdout=log, stderr=subprocess.STDOUT)
         for attempt in range(100):
             try:
@@ -130,6 +134,77 @@ with tempfile.TemporaryDirectory(prefix='syzygy-pair-check-') as directory:
             assert request(uid, values).attrib['status_code'] == '200'
             state = json.loads((root / 'sunshine/sunshine_state.json').read_text())
             assert len(state['root']['named_devices']) == 2, 'Retry created duplicate devices'
+
+            if env.get('SYZYGY_WAN_INTEGRATION_ENABLED') == '1':
+                # Real native session: setup, software encoder, bounded UDP and
+                # authenticated telemetry. A second paired certificate cannot tune it.
+                context0 = ssl.create_default_context(cadata=server_cert.decode())
+                context0.check_hostname = False
+                context0.load_cert_chain(str(clients[0][1]), str(clients[0][0]))
+                apps = request('eclipse-passkey-test-1', {}, context, 'applist')
+                desktop = next(app for app in apps.findall('App') if app.findtext('AppTitle') == 'Desktop')
+                launch = request('eclipse-passkey-test-1', dict(appid=desktop.findtext('ID'),
+                    mode='640x480x30', rikey='00'*16, rikeyid='1', corever='0', wan='1',
+                    localAudioPlayMode='0', surroundAudioInfo='196610'), context, 'launch')
+                assert launch.attrib['status_code'] == '200', launch.attrib
+                def rtsp(method, target='streamid=video', body=''):
+                    # CSeq is informational for this independent request connection.
+                    wire = (f'{method} {target} RTSP/1.0\r\nCSeq: 1\r\nSession: DEADBEEFCAFE\r\n'
+                            f'Content-Length: {len(body.encode())}\r\n\r\n' + body).encode()
+                    with socket.create_connection(('127.0.0.1', 49220), timeout=5) as connection:
+                        connection.sendall(wire)
+                        response = b''
+                        while b'\r\n\r\n' not in response:
+                            chunk = connection.recv(65536)
+                            if not chunk: break
+                            response += chunk
+                        assert response.startswith(b'RTSP/1.0 200'), response
+                    return response
+                for channel in ('audio', 'video', 'control'): rtsp('SETUP', 'streamid='+channel)
+                attributes = {
+                    'x-nv-audio.surround.numChannels': 2, 'x-nv-audio.surround.channelMask': 3,
+                    'x-nv-audio.surround.AudioQuality': 0, 'x-nv-video[0].packetSize': 1392,
+                    'x-nv-video[0].clientViewportHt': 480, 'x-nv-video[0].clientViewportWd': 640,
+                    'x-nv-video[0].maxFPS': 30, 'x-nv-vqos[0].bw.maximumBitrateKbps': 4000,
+                    'x-nv-video[0].videoEncoderSlicesPerFrame': 1, 'x-nv-video[0].maxNumReferenceFrames': 1,
+                    'x-nv-general.featureFlags': 0, 'x-ss-video[0].intraRefresh': 1,
+                }
+                sdp = 'v=0\r\ns=WAN integration\r\n' + ''.join(f'a={key}:{value}\r\n' for key,value in attributes.items())
+                rtsp('ANNOUNCE', body=sdp)
+                rtsp('PLAY')
+                video = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                audio = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                video.settimeout(.5)
+                video.sendto(b'PING', ('127.0.0.1', 49208))
+                audio.sendto(b'PING', ('127.0.0.1', 49210))
+                try:
+                    for attempt in range(20):
+                        feedback = request('eclipse-passkey-test-1', {}, context, 'wan')
+                        if feedback.findtext('runtimeBitrate') == '1': break
+                        time.sleep(.1)
+                    assert feedback.findtext('encoderOverrides') == '1', 'WAN software encoder overrides not active'
+                    assert feedback.findtext('runtimeBitrate') == '1', 'Software runtime bitrate not active'
+                    packet, _ = video.recvfrom(65536)
+                    assert 0 < len(packet) <= 1120, 'WAN UDP packet exceeded conservative payload budget'
+                    denied = request('eclipse-passkey-test-0', dict(rtt='30',jitter='0',loss='0'), context0, 'wan')
+                    assert denied.attrib['status_code'] == '404', 'A second certificate changed this stream'
+                    healthy = request('eclipse-passkey-test-1', dict(rtt='30',jitter='1',loss='0'), context, 'wan')
+                    assert healthy.findtext('fec') == '5'
+                    time.sleep(.25)
+                    congested = request('eclipse-passkey-test-1', dict(rtt='150',jitter='30',loss='60'), context, 'wan')
+                    assert congested.findtext('fec') == '5', 'Congestion inflated FEC'
+                    assert int(congested.findtext('bitrate')) < int(healthy.findtext('bitrate'))
+                    time.sleep(.25)
+                    loss = request('eclipse-passkey-test-1', dict(rtt='30',jitter='1',loss='60'), context, 'wan')
+                    assert loss.findtext('fec') == '35'
+                    bad = request('eclipse-passkey-test-1', dict(rtt='-1',jitter='0',loss='0'), context, 'wan')
+                    assert bad.attrib['status_code'] == '400'
+                    time.sleep(3.2)
+                    conservative = request('eclipse-passkey-test-1', {}, context, 'wan')
+                    assert conservative.findtext('fec') == '10', 'Lost telemetry did not restore conservative FEC'
+                    print('PASS: real WAN session, software encoder, small UDP, isolated telemetry, congestion/loss adaptation and stale fallback')
+                finally:
+                    video.close(); audio.close()
         finally:
             stop(process)
         process = start(log)
