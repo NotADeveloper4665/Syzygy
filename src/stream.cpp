@@ -1635,6 +1635,12 @@ namespace stream {
                                          std::chrono::duration_cast<std::chrono::nanoseconds>(1ms) *
                                            ratecontrol_frame_packets_sent / ratecontrol_packets_in_1ms;
 
+          if (wan && wan->enabled) {
+            const auto rate = std::max(1000, wan->bitrate_kbps.load()) * (100 + fecPercentage) / 100;
+            ratecontrol_next_frame_start = ratecontrol_frame_start +
+              std::chrono::microseconds(ratecontrol_frame_packets_sent * blocksize * 8000 / rate);
+          }
+
           frame_network_latency_logger.second_point_now_and_log();
 
           BOOST_LOG(verbose) << "Sent Frame seq ["sv << packet->frame_index() << "] pts ["sv << timestamp
