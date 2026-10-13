@@ -30,6 +30,7 @@ extern "C" {
 #include "platform/common.h"
 #include "process.h"
 #include "stream.h"
+#include "syzygy/wan_pacing.h"
 #include "sync.h"
 #include "system_tray.h"
 #include "thread_safe.h"
@@ -653,11 +654,10 @@ namespace stream {
 
       auto aligned_data_shards = payload_size / blocksize;
       auto data_shards = aligned_data_shards + (pad ? 1 : 0);
-      auto parity_shards = (data_shards * fecpercentage + 99) / 100;
+      auto parity_shards = syzygy::parity_shards(data_shards, fecpercentage, minparityshards);
 
       // increase the FEC percentage for this frame if the parity shard minimum is not met
-      if (parity_shards < minparityshards && fecpercentage != 0) {
-        parity_shards = minparityshards;
+      if (fecpercentage != 0 && (data_shards * fecpercentage + 99) / 100 < minparityshards) {
         fecpercentage = (100 * parity_shards) / data_shards;
 
         BOOST_LOG(verbose) << "Increasing FEC percentage to "sv << fecpercentage << " to meet parity shard minimum"sv << std::endl;
@@ -1399,13 +1399,22 @@ namespace stream {
       }
 
       auto wan = session->config.monitor.wan;
+      const auto encoded_video_bytes = payload.size();
       // This legacy broadcaster is shared. Slow pacing must not stall another
       // client's video; retain normal sender behavior when sessions overlap.
-      const bool pacedWan = wan && wan->enabled && stream::session::active_count() <= 1;
+      bool pacedWan = wan && wan->enabled && wan->runtime_bitrate.load() &&
+                      !wan->pacing_failed.load() && stream::session::active_count() <= 1;
       if (wan && wan->enabled) {
-        wan->pacing_active.store(pacedWan);
-        if (!pacedWan && !wan->shared_sender_warning.exchange(true))
+        if (stream::session::active_count() > 1 && !wan->shared_sender_warning.exchange(true))
           BOOST_LOG(warning) << "WAN pacing fallback: multiple clients share the video sender";
+        if (!wan->runtime_bitrate.load() && !wan->pacing_capability_warning.exchange(true))
+          BOOST_LOG(warning) << "WAN pacing fallback: encoder cannot adjust its bitrate safely";
+        if (pacedWan && packet->frame_timestamp && syzygy::wan_frame_pacer::backlog(*packet->frame_timestamp, std::chrono::steady_clock::now())) {
+          wan->pacing_failed.store(true);
+          pacedWan = false;
+          ratecontrol_next_frame_start = std::chrono::steady_clock::now();
+          BOOST_LOG(warning) << "WAN pacing fallback: frame backlog exceeded 100 ms; using legacy sender for this session";
+        }
       }
       auto fecPercentage = wan && wan->enabled ? wan->current_fec() : config::stream.fec_percentage;
 
@@ -1469,6 +1478,22 @@ namespace stream {
       }
 
       try {
+        const auto wire_packet_bytes = blocksize + (session->video.cipher ? sizeof(video_packet_enc_prefix_t) : 0) +
+                                       (session->video.peer.address().is_v6() ? 48 : 28);
+        uint64_t frame_shards = 0;
+        for (auto it = fec_blocks_begin; it != fec_blocks_end; ++it) {
+          const auto data = (it->size() + blocksize - 1) / blocksize;
+          frame_shards += data + syzygy::parity_shards(data, fecPercentage, session->config.minRequiredFecPackets);
+        }
+        syzygy::wan_frame_pacer pacer(wan ? wan->bitrate_kbps.load() : 0, encoded_video_bytes,
+                                     frame_shards * wire_packet_bytes, wire_packet_bytes);
+        if (pacedWan && !pacer.fits_frame(frame_shards)) {
+          pacedWan = false; // Large initial/key frames get normal sending, not hundreds of ms of pacing.
+          ratecontrol_next_frame_start = std::chrono::steady_clock::now();
+          if (!wan->large_frame_warning.exchange(true))
+            BOOST_LOG(warning) << "WAN pacing fallback for oversized frame; retaining normal packet delivery";
+        }
+        if (wan) wan->pacing_active.store(pacedWan);
         // Use around 80% of 1Gbps          1Gbps            percent    ms     packet      byte
         size_t ratecontrol_packets_in_1ms = std::giga::num * 80 / 100 / 1000 / blocksize / 8;
 
@@ -1477,8 +1502,7 @@ namespace stream {
         // appear in "Other I/O" and begin waiting for interrupts.
         // This gives inconsistent performance so we'd rather avoid it.
         if (pacedWan) {
-          auto kbps = std::max(1000, wan->bitrate_kbps.load());
-          ratecontrol_packets_in_1ms = std::max<size_t>(1, kbps * (100 + fecPercentage) / 100 / (blocksize * 8));
+          ratecontrol_packets_in_1ms = std::max<size_t>(1, pacer.wire_kbps / (wire_packet_bytes * 8));
         }
         size_t send_batch_size = pacedWan ? 1 : 64 * 1024 / blocksize;
         // Also don't exceed 64 packets, which can happen when Moonlight requests
@@ -1595,8 +1619,7 @@ namespace stream {
                              ratecontrol_frame_packets_sent / ratecontrol_packets_in_1ms;
 
                 if (pacedWan) {
-                  const auto rate = std::max(1000, wan->bitrate_kbps.load()) * (100 + fecPercentage) / 100;
-                  due = ratecontrol_frame_start + std::chrono::microseconds(ratecontrol_frame_packets_sent * blocksize * 8000 / rate);
+                  due = ratecontrol_frame_start + pacer.offset(ratecontrol_frame_packets_sent);
                 }
                 auto now = std::chrono::steady_clock::now();
                 if (now < due) {
@@ -1644,9 +1667,7 @@ namespace stream {
                                            ratecontrol_frame_packets_sent / ratecontrol_packets_in_1ms;
 
           if (pacedWan) {
-            const auto rate = std::max(1000, wan->bitrate_kbps.load()) * (100 + fecPercentage) / 100;
-            ratecontrol_next_frame_start = ratecontrol_frame_start +
-              std::chrono::microseconds(ratecontrol_frame_packets_sent * blocksize * 8000 / rate);
+            ratecontrol_next_frame_start = ratecontrol_frame_start + pacer.offset(ratecontrol_frame_packets_sent);
           }
 
           frame_network_latency_logger.second_point_now_and_log();

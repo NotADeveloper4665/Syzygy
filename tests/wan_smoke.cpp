@@ -63,4 +63,14 @@ int main() {
     assert(b.feedback(30, 0, 0, now + std::chrono::seconds(i)));
     assert(b.bitrate_kbps > 0 && b.bitrate_kbps <= b.ceiling_kbps);
   }
+  // High delay/loss must not become a "healthy" RTT baseline after 10 samples.
+  syzygy::wan_state congested;
+  congested.enabled = true;
+  congested.ceiling_kbps = congested.bitrate_kbps = 5000;
+  congested.runtime_bitrate = true;
+  assert(congested.feedback(30, 0, 0, now));
+  for (int i = 1; i <= 30; ++i)
+    assert(congested.feedback(300, 0, 330, now + std::chrono::seconds(i)));
+  assert(congested.baseline_rtt == 30);
+  assert(congested.bitrate_kbps == 1000);
 }
