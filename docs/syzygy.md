@@ -171,7 +171,9 @@ second. This is not raw packet loss or instantaneous radio telemetry. Requests
 are bounded and rate limited, and cannot target another certificate's session.
 
 WAN video uses at most a 1024-byte GameStream payload and individual paced UDP
-packets. Pacing includes FEC overhead. FEC adapts between 5 and 35 percent; when
+packets. Pacing includes FEC overhead. With overlapping client sessions, the
+shared sender keeps normal pacing so one slow mobile link cannot stall other
+clients; per-session bitrate/FEC policies remain available. FEC adapts between 5 and 35 percent; when
 RTT/jitter indicates congestion it remains low instead of increasing bandwidth.
 Missing feedback returns FEC to 10 percent. A stable new RTT floor is accepted
 following a path change. Supported FFmpeg libx264 and NVENC encoders update bitrate

@@ -14,6 +14,7 @@ struct wan_state {
   std::atomic<int> bitrate_kbps{0};
   std::atomic<int> fec{10};
   std::atomic<bool> runtime_bitrate{false};
+  std::atomic<bool> pacing_active{false}, shared_sender_warning{false};
   std::atomic<bool> encoder_overrides{false};
   std::mutex lock;
   int baseline_rtt = 0;

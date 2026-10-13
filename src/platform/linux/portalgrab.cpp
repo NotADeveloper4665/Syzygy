@@ -739,11 +739,18 @@ namespace portal {
   public:
     pipewire_t():
         loop(pw_thread_loop_new("Pipewire thread", nullptr)) {
-      pw_thread_loop_start(loop);
+      if (!loop) throw std::runtime_error("Could not allocate PipeWire loop");
+      if (pw_thread_loop_start(loop) < 0) {
+        pw_thread_loop_destroy(loop);
+        loop = nullptr;
+        throw std::runtime_error("Could not start PipeWire loop");
+      }
     }
 
     ~pipewire_t() {
-      pw_thread_loop_stop(loop);
+      if (!loop) return;
+      // All objects attached to a running threaded loop require its lock.
+      pw_thread_loop_lock(loop);
       if (stream_data.stream) {
         pw_stream_set_active(stream_data.stream, false);
         pw_stream_disconnect(stream_data.stream);
@@ -755,9 +762,10 @@ namespace portal {
       if (context) {
         pw_context_destroy(context);
       }
-      if (fd >= 0) {
-        close(fd);
-      }
+      pw_thread_loop_unlock(loop);
+      // Stop must be called without the lock, after disconnecting its objects.
+      pw_thread_loop_stop(loop);
+      if (fd >= 0) close(fd);
       pw_thread_loop_destroy(loop);
     }
 
@@ -765,7 +773,10 @@ namespace portal {
       fd = stream_fd;
       node = stream_node;
 
+      pw_thread_loop_lock(loop);
+      auto unlock = util::fail_guard([&]() { pw_thread_loop_unlock(loop); });
       context = pw_context_new(pw_thread_loop_get_loop(loop), nullptr, 0);
+      if (!context) throw std::runtime_error("Could not create PipeWire context");
       core = fd >= 0 ? pw_context_connect_fd(context, dup(fd), nullptr, 0) :
                        pw_context_connect(context, nullptr, 0);
       if (!core) throw std::runtime_error("Could not connect to the headless PipeWire server");
@@ -859,12 +870,12 @@ namespace portal {
 
   private:
     struct pw_thread_loop *loop;
-    struct pw_context *context;
-    struct pw_core *core;
-    struct spa_hook core_listener;
-    struct stream_data_t stream_data;
-    int fd;
-    int node;
+    struct pw_context *context = nullptr;
+    struct pw_core *core = nullptr;
+    struct spa_hook core_listener {};
+    struct stream_data_t stream_data {};
+    int fd = -1;
+    int node = -1;
 
     static struct spa_pod *build_format_parameter(struct spa_pod_builder *b, uint32_t width, uint32_t height, uint32_t refresh_rate, int32_t format, uint64_t *modifiers, int n_modifiers) {
       struct spa_pod_frame object_frame;

@@ -1399,6 +1399,14 @@ namespace stream {
       }
 
       auto wan = session->config.monitor.wan;
+      // This legacy broadcaster is shared. Slow pacing must not stall another
+      // client's video; retain normal sender behavior when sessions overlap.
+      const bool pacedWan = wan && wan->enabled && stream::session::active_count() <= 1;
+      if (wan && wan->enabled) {
+        wan->pacing_active.store(pacedWan);
+        if (!pacedWan && !wan->shared_sender_warning.exchange(true))
+          BOOST_LOG(warning) << "WAN pacing fallback: multiple clients share the video sender";
+      }
       auto fecPercentage = wan && wan->enabled ? wan->current_fec() : config::stream.fec_percentage;
 
       // Insert space for packet headers
@@ -1468,11 +1476,11 @@ namespace stream {
         // On Windows, batches above 64K seem to bypass SO_SNDBUF regardless of its size,
         // appear in "Other I/O" and begin waiting for interrupts.
         // This gives inconsistent performance so we'd rather avoid it.
-        if (wan && wan->enabled) {
+        if (pacedWan) {
           auto kbps = std::max(1000, wan->bitrate_kbps.load());
           ratecontrol_packets_in_1ms = std::max<size_t>(1, kbps * (100 + fecPercentage) / 100 / (blocksize * 8));
         }
-        size_t send_batch_size = wan && wan->enabled ? 1 : 64 * 1024 / blocksize;
+        size_t send_batch_size = pacedWan ? 1 : 64 * 1024 / blocksize;
         // Also don't exceed 64 packets, which can happen when Moonlight requests
         // unusually small packet size.
         // Generic Segmentation Offload on Linux can't do more than 64.
@@ -1580,13 +1588,13 @@ namespace stream {
               // Do pacing within the frame.
               // Also trigger pacing before the first send_batch() of the frame
               // to account for the last send_batch() of the previous frame.
-              if ((wan && wan->enabled) || ratecontrol_group_packets_sent >= ratecontrol_packets_in_1ms ||
+              if (pacedWan || ratecontrol_group_packets_sent >= ratecontrol_packets_in_1ms ||
                   ratecontrol_frame_packets_sent == 0) {
                 auto due = ratecontrol_frame_start +
                            std::chrono::duration_cast<std::chrono::nanoseconds>(1ms) *
                              ratecontrol_frame_packets_sent / ratecontrol_packets_in_1ms;
 
-                if (wan && wan->enabled) {
+                if (pacedWan) {
                   const auto rate = std::max(1000, wan->bitrate_kbps.load()) * (100 + fecPercentage) / 100;
                   due = ratecontrol_frame_start + std::chrono::microseconds(ratecontrol_frame_packets_sent * blocksize * 8000 / rate);
                 }
@@ -1635,7 +1643,7 @@ namespace stream {
                                          std::chrono::duration_cast<std::chrono::nanoseconds>(1ms) *
                                            ratecontrol_frame_packets_sent / ratecontrol_packets_in_1ms;
 
-          if (wan && wan->enabled) {
+          if (pacedWan) {
             const auto rate = std::max(1000, wan->bitrate_kbps.load()) * (100 + fecPercentage) / 100;
             ratecontrol_next_frame_start = ratecontrol_frame_start +
               std::chrono::microseconds(ratecontrol_frame_packets_sent * blocksize * 8000 / rate);
@@ -1958,6 +1966,7 @@ namespace stream {
 
   namespace session {
     std::atomic_uint running_sessions;
+    unsigned int active_count() { return running_sessions.load(std::memory_order_relaxed); }
 
     state_e state(session_t &session) {
       return session.state.load(std::memory_order_relaxed);

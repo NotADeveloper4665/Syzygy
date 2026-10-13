@@ -142,10 +142,8 @@ with tempfile.TemporaryDirectory(prefix='syzygy-pair-check-') as directory:
                 context0.check_hostname = False
                 context0.load_cert_chain(str(clients[0][1]), str(clients[0][0]))
                 apps = request('eclipse-passkey-test-1', {}, context, 'applist')
-                assert any(app.findtext('AppTitle') == 'Desktop' for app in apps.findall('App'))
-                # appid=0 requests the existing desktop without application management.
-                # This isolates transport/encoding from portal reprobe and app commands.
-                launch = request('eclipse-passkey-test-1', dict(appid='0',
+                desktop = next(app for app in apps.findall('App') if app.findtext('AppTitle') == 'Desktop')
+                launch = request('eclipse-passkey-test-1', dict(appid=desktop.findtext('ID'),
                     mode='640x480x30', rikey='00'*16, rikeyid='1', corever='0', wan='1',
                     localAudioPlayMode='0', surroundAudioInfo='196610'), context, 'launch')
                 assert launch.attrib['status_code'] == '200', launch.attrib

@@ -1422,6 +1422,7 @@ namespace video {
     const auto oldBitrate = ctx->bit_rate;
     const auto oldMaxRate = ctx->rc_max_rate;
     const auto oldMinRate = ctx->rc_min_rate;
+    const auto oldBuffer = ctx->rc_buffer_size;
     bool bitrateChanged = false;
     if (session.wan && session.wan->runtime_bitrate.load()) {
       const auto bitrate = int64_t(session.wan->bitrate_kbps.load()) * 1000;
@@ -1429,6 +1430,8 @@ namespace video {
       ctx->bit_rate = bitrate;
       ctx->rc_max_rate = bitrate;
       ctx->rc_min_rate = bitrate;
+      if (session.wan->enabled && ctx->rc_buffer_size > 0)
+        ctx->rc_buffer_size = static_cast<int>(bitrate / std::max(1, ctx->framerate.num));
     }
     auto &sps = session.sps;
     auto &vps = session.vps;
@@ -1441,6 +1444,7 @@ namespace video {
       ctx->bit_rate = oldBitrate;
       ctx->rc_max_rate = oldMaxRate;
       ctx->rc_min_rate = oldMinRate;
+      ctx->rc_buffer_size = oldBuffer;
       BOOST_LOG(warning) << "WAN bitrate update failed; retrying original encoder rate";
       ret = avcodec_send_frame(ctx.get(), frame);
     }

@@ -1936,6 +1936,7 @@ namespace nvhttp {
           if (args.count("rtt")) {
             status = state->feedback(std::stoi(get_arg(args, "rtt")), std::stoi(get_arg(args, "jitter")), std::stoi(get_arg(args, "loss"))) ? 200 : 400;
           } else status = 200;
+          tree.put("root.pacing", state->pacing_active.load() ? 1 : 0);
           tree.put("root.runtimeBitrate", state->runtime_bitrate.load() ? 1 : 0);
           tree.put("root.encoderOverrides", state->encoder_overrides.load() ? 1 : 0);
           tree.put("root.bitrate", state->bitrate_kbps.load());
