@@ -157,3 +157,51 @@ an experimental Fedora/Linux IPv4 implementation; Flatpak/Windows deployment
 and Android are not included. CPU overhead and real-game latency must be measured
 before claiming an improvement. Automatic falls back only when QUIC is
 unavailable; certificate/authentication failures stop the connection.
+
+### WAN / 5G Optimization (negotiated version 1)
+
+Eclipse and Occultation expose an opt-in WAN / 5G Optimization preference.
+Syzygy advertises `SyzygyWanVersion=1` in serverinfo; compatible clients send
+`wan=1` on authenticated launch/resume. Older clients do not enable host WAN
+policies. Older hosts keep their normal host policies. No host config is rewritten.
+
+Each active device session owns its control state. Certificate-authenticated
+`/wan` feedback reports RTT, RTT variance and post-FEC video frame gaps once per
+second. This is not raw packet loss or instantaneous radio telemetry. Requests
+are bounded and rate limited, and cannot target another certificate's session.
+
+WAN video uses at most a 1024-byte GameStream payload and individual paced UDP
+packets. Pacing includes FEC overhead. FEC adapts between 5 and 35 percent; when
+RTT/jitter indicates congestion it remains low instead of increasing bandwidth.
+Missing feedback returns FEC to 10 percent. A stable new RTT floor is accepted
+following a path change. Supported FFmpeg libx264 and NVENC encoders update bitrate
+in their encoding thread. Unsupported encoders retain their original bitrate
+and cap adaptive FEC at 10 percent. Native Windows NVENC and VAAPI retain their
+encoding configuration until a supported runtime reconfiguration path exists.
+
+Supported libx264/NVENC sessions request no B-frames, low-delay presets and H.264
+intra-refresh. NVENC requests P1, ULL, CBR and no lookahead/multipass. Encoder open
+failure retries the normal encoder options. Initial and recovery keyframes remain
+necessary. A 1024-byte payload is a conservative inner packet budget; VPN outer
+headers and QUIC's minimum datagram size prevent promising a universal 1280-byte
+outer-wire MTU. QUIC supplies its own congestion control and packet pacing.
+
+Eclipse disables optional video smoothing/minimum delay for negotiated WAN
+sessions and drops stale decoded frames from its presentation queue at 16 ms.
+Occultation uses minimum-latency presentation and discards stale decoded output
+when a newer frame is available. Compressed reference frames are still decoded.
+Audio remains independent of video. Eclipse's SDL backend optionally uses
+SoundTouch for 1-percent pitch-preserving tempo adjustment and a bounded queue;
+builds/backends without it keep normal bounded audio playback. Android 6+ requests
+pitch-preserving AudioTrack tempo adjustment; unsupported devices retain the
+normal audio backend. Android 5 uses bounded audio without tempo adjustment.
+
+Eclipse's separate Linux Wi-Fi option is off by default. It detects the routed
+wireless interface, asks for administrator authorization, and uses a helper to
+temporarily disable power saving and restore it on session end or stdin EOF.
+Wired/missing/unsupported interfaces or declined authorization retain normal
+settings. `PULSE_LATENCY_MSEC=10` is an audio request during the session, restored
+at cleanup; it does not bypass the desktop compositor.
+
+This feature requires impairment and real-cellular testing before performance
+claims. Build success and synthetic control tests do not establish latency gains.

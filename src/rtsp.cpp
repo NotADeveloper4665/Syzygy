@@ -1132,6 +1132,16 @@ namespace rtsp_stream {
       config.monitor.bitrate = configuredBitrateKbps;
     }
 
+    config.monitor.wan = std::make_shared<syzygy::wan_state>();
+    config.monitor.wan->enabled = session.wan;
+    config.monitor.wan->ceiling_kbps = config.monitor.bitrate;
+    config.monitor.wan->bitrate_kbps.store(config.monitor.bitrate);
+    if (session.wan) {
+      // A smaller payload leaves headroom for RTP, encryption, QUIC and tunnels.
+      config.packetsize = std::min(config.packetsize, 1024);
+      BOOST_LOG(info) << "WAN mode: conservative packet size and paced video enabled";
+    }
+
     if (config.monitor.videoFormat == 1 && video::active_hevc_mode == 1) {
       BOOST_LOG(warning) << "HEVC is disabled, yet the client requested HEVC"sv;
 

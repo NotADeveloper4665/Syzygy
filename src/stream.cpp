@@ -1398,7 +1398,8 @@ namespace stream {
         frame_header.frame_processing_latency = 0;
       }
 
-      auto fecPercentage = config::stream.fec_percentage;
+      auto wan = session->config.monitor.wan;
+      auto fecPercentage = wan && wan->enabled ? wan->current_fec() : config::stream.fec_percentage;
 
       // Insert space for packet headers
       auto blocksize = session->config.packetsize + MAX_RTP_HEADER_SIZE;
@@ -1467,7 +1468,11 @@ namespace stream {
         // On Windows, batches above 64K seem to bypass SO_SNDBUF regardless of its size,
         // appear in "Other I/O" and begin waiting for interrupts.
         // This gives inconsistent performance so we'd rather avoid it.
-        size_t send_batch_size = 64 * 1024 / blocksize;
+        if (wan && wan->enabled) {
+          auto kbps = std::max(1000, wan->bitrate_kbps.load());
+          ratecontrol_packets_in_1ms = std::max<size_t>(1, kbps * (100 + fecPercentage) / 100 / (blocksize * 8));
+        }
+        size_t send_batch_size = wan && wan->enabled ? 1 : 64 * 1024 / blocksize;
         // Also don't exceed 64 packets, which can happen when Moonlight requests
         // unusually small packet size.
         // Generic Segmentation Offload on Linux can't do more than 64.
@@ -1575,12 +1580,16 @@ namespace stream {
               // Do pacing within the frame.
               // Also trigger pacing before the first send_batch() of the frame
               // to account for the last send_batch() of the previous frame.
-              if (ratecontrol_group_packets_sent >= ratecontrol_packets_in_1ms ||
+              if ((wan && wan->enabled) || ratecontrol_group_packets_sent >= ratecontrol_packets_in_1ms ||
                   ratecontrol_frame_packets_sent == 0) {
                 auto due = ratecontrol_frame_start +
                            std::chrono::duration_cast<std::chrono::nanoseconds>(1ms) *
                              ratecontrol_frame_packets_sent / ratecontrol_packets_in_1ms;
 
+                if (wan && wan->enabled) {
+                  const auto rate = std::max(1000, wan->bitrate_kbps.load()) * (100 + fecPercentage) / 100;
+                  due = ratecontrol_frame_start + std::chrono::microseconds(ratecontrol_frame_packets_sent * blocksize * 8000 / rate);
+                }
                 auto now = std::chrono::steady_clock::now();
                 if (now < due) {
                   timer->sleep_for(due - now);
@@ -1955,6 +1964,8 @@ namespace stream {
     std::string uuid(const session_t& session) {
       return session.device_uuid;
     }
+
+    std::shared_ptr<syzygy::wan_state> wan(session_t& session) { return session.config.monitor.wan; }
 
     bool uuid_match(const session_t &session, const std::string_view& uuid) {
       return session.device_uuid == uuid;

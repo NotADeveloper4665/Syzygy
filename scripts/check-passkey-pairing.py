@@ -121,6 +121,8 @@ with tempfile.TemporaryDirectory(prefix='syzygy-pair-check-') as directory:
                 context.load_cert_chain(str(clients[index][1]), str(clients[index][0]))
                 assert request(uid, dict(phrase='pairchallenge'), context).findtext('paired') == '1'
                 info = request(uid, {}, context, 'serverinfo')
+                assert info.findtext('SyzygyWanVersion') == '1', 'Missing WAN negotiation capability'
+                assert request(uid, {}, context, 'wan').attrib['status_code'] == '404', 'WAN endpoint accepted an idle session'
                 assert int(info.findtext('Permission')) == ((31 << 8) | (31 << 16) | (7 << 24)), 'Passkey did not grant full permissions'
 
             # Retry after a lost response: same cert must remain a single paired device.

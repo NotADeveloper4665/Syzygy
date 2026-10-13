@@ -404,6 +404,7 @@ namespace nvhttp {
     auto launch_session = std::make_shared<rtsp_stream::launch_session_t>();
 
     launch_session->id = ++session_id_counter;
+    launch_session->wan = get_arg(args, "wan", "0") == "1";
 
     // If launched from client
     if (named_cert_p->uuid != http::unique_id) {
@@ -1068,6 +1069,7 @@ namespace nvhttp {
     tree.put("root.appversion", VERSION);
     tree.put("root.GfeVersion", GFE_VERSION);
     tree.put("root.uniqueid", http::unique_id);
+    tree.put("root.SyzygyWanVersion", 1);
     tree.put("root.HttpsPort", net::map_port(PORT_HTTPS));
     tree.put("root.ExternalPort", net::map_port(PORT_HTTP));
     tree.put("root.MaxLumaPixelsHEVC", video::active_hevc_mode > 1 ? "1869449984" : "0");
@@ -1898,6 +1900,53 @@ namespace nvhttp {
     };
     https_server.resource["^/resume$"]["GET"] = [&host_audio](auto resp, auto req) {
       resume(host_audio, resp, req);
+    };
+    https_server.resource["^/bitrate$"]["GET"] = [](resp_https_t response, req_https_t request) {
+      pt::ptree tree;
+      auto cert = get_verified_cert(request);
+      auto session = rtsp_stream::find_session(cert->uuid);
+      auto state = session ? stream::session::wan(*session) : nullptr;
+      int status = 404;
+      if (state && state->runtime_bitrate.load()) {
+        try {
+          auto args = request->parse_query_string();
+          auto bitrate = std::stoi(get_arg(args, "bitrate"));
+          if (bitrate >= 1000 && bitrate <= 200000) {
+            state->bitrate_kbps.store(std::min(bitrate, state->ceiling_kbps));
+            status = 200;
+          } else status = 400;
+        } catch (const std::exception&) { status = 400; }
+      }
+      tree.put("root.<xmlattr>.status_code", status);
+      std::ostringstream data;
+      pt::write_xml(data, tree);
+      response->write(data.str());
+      response->close_connection_after_response = true;
+    };
+    // Certificate-authenticated, per-device feedback; no global config mutation.
+    https_server.resource["^/wan$"]["GET"] = [](resp_https_t response, req_https_t request) {
+      pt::ptree tree;
+      auto cert = get_verified_cert(request);
+      auto session = rtsp_stream::find_session(cert->uuid);
+      auto state = session ? stream::session::wan(*session) : nullptr;
+      int status = 404;
+      if (state && state->enabled && stream::session::uuid_match(*session, cert->uuid)) {
+        try {
+          auto args = request->parse_query_string();
+          if (args.count("rtt")) {
+            status = state->feedback(std::stoi(get_arg(args, "rtt")), std::stoi(get_arg(args, "jitter")), std::stoi(get_arg(args, "loss"))) ? 200 : 400;
+          } else status = 200;
+          tree.put("root.runtimeBitrate", state->runtime_bitrate.load() ? 1 : 0);
+          tree.put("root.encoderOverrides", state->encoder_overrides.load() ? 1 : 0);
+          tree.put("root.bitrate", state->bitrate_kbps.load());
+          tree.put("root.fec", state->current_fec());
+        } catch (const std::exception&) { status = 400; }
+      }
+      tree.put("root.<xmlattr>.status_code", status);
+      std::ostringstream data;
+      pt::write_xml(data, tree);
+      response->write(data.str());
+      response->close_connection_after_response = true;
     };
     https_server.resource["^/cancel$"]["GET"] = cancel;
     https_server.resource["^/actions/clipboard$"]["GET"] = getClipboard;

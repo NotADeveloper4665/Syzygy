@@ -314,6 +314,7 @@ namespace video {
 
   class avcodec_encode_session_t: public encode_session_t {
   public:
+    std::shared_ptr<syzygy::wan_state> wan;
     avcodec_encode_session_t() = default;
 
     avcodec_encode_session_t(avcodec_ctx_t &&avcodec_ctx, std::unique_ptr<platf::avcodec_encode_device_t> encode_device, int inject):
@@ -345,6 +346,7 @@ namespace video {
       vps = std::move(other.vps);
 
       inject = other.inject;
+      wan = std::move(other.wan);
 
       return *this;
     }
@@ -1417,11 +1419,31 @@ namespace video {
 
     auto &ctx = session.avcodec_ctx;
 
+    const auto oldBitrate = ctx->bit_rate;
+    const auto oldMaxRate = ctx->rc_max_rate;
+    const auto oldMinRate = ctx->rc_min_rate;
+    bool bitrateChanged = false;
+    if (session.wan && session.wan->runtime_bitrate.load()) {
+      const auto bitrate = int64_t(session.wan->bitrate_kbps.load()) * 1000;
+      bitrateChanged = ctx->bit_rate != bitrate;
+      ctx->bit_rate = bitrate;
+      ctx->rc_max_rate = bitrate;
+      ctx->rc_min_rate = bitrate;
+    }
     auto &sps = session.sps;
     auto &vps = session.vps;
 
     // send the frame to the encoder
     auto ret = avcodec_send_frame(ctx.get(), frame);
+    if (ret < 0 && bitrateChanged && session.wan) {
+      session.wan->runtime_bitrate.store(false);
+      session.wan->bitrate_kbps.store(static_cast<int>(oldBitrate/1000));
+      ctx->bit_rate = oldBitrate;
+      ctx->rc_max_rate = oldMaxRate;
+      ctx->rc_min_rate = oldMinRate;
+      BOOST_LOG(warning) << "WAN bitrate update failed; retrying original encoder rate";
+      ret = avcodec_send_frame(ctx.get(), frame);
+    }
     if (ret < 0) {
       char err_str[AV_ERROR_MAX_STRING_SIZE] {0};
       BOOST_LOG(error) << "Could not send a frame for encoding: "sv << av_make_error_string(err_str, AV_ERROR_MAX_STRING_SIZE, ret);
@@ -1786,13 +1808,30 @@ namespace video {
         }
       }
 
+      if (config.wan && config.wan->enabled && retries == 0) {
+        ctx->max_b_frames = 0;
+        auto name = std::string(codec->name);
+        if (name == "libx264") {
+          av_dict_set(&options, "preset", "ultrafast", 0);
+          av_dict_set(&options, "tune", "zerolatency", 0);
+          av_dict_set(&options, "intra-refresh", "1", 0);
+        } else if (name.find("_nvenc") != std::string::npos) {
+          av_dict_set(&options, "preset", "p1", 0);
+          av_dict_set(&options, "tune", "ull", 0);
+          av_dict_set(&options, "rc", "cbr", 0);
+          av_dict_set(&options, "rc-lookahead", "0", 0);
+          av_dict_set(&options, "multipass", "disabled", 0);
+          if (config.videoFormat == 0) av_dict_set(&options, "intra-refresh", "1", 0);
+        }
+      }
+
       // Allow the encoding device a final opportunity to set/unset or override any options
       encode_device->init_codec_options(ctx.get(), &options);
 
       if (auto status = avcodec_open2(ctx.get(), codec, &options)) {
         char err_str[AV_ERROR_MAX_STRING_SIZE] {0};
 
-        if (!video_format.fallback_options.empty() && retries == 0) {
+        if ((!video_format.fallback_options.empty() || (config.wan && config.wan->enabled)) && retries == 0) {
           BOOST_LOG(info)
             << "Retrying with fallback configuration options for ["sv << video_format.name << "] after error: "sv
             << av_make_error_string(err_str, AV_ERROR_MAX_STRING_SIZE, status);
@@ -1808,6 +1847,11 @@ namespace video {
         }
       }
 
+      if (config.wan) {
+        const auto name = std::string(codec->name);
+        config.wan->runtime_bitrate.store(name == "libx264" || name.find("_nvenc") != std::string::npos);
+        config.wan->encoder_overrides.store(config.wan->enabled && retries == 0 && (name == "libx264" || name.find("_nvenc") != std::string::npos));
+      }
       // Successfully opened the codec
       break;
     }
@@ -1884,6 +1928,7 @@ namespace video {
       config.videoFormat <= 1 ? (1 - (int) video_format[encoder_t::VUI_PARAMETERS]) * (1 + config.videoFormat) : 0
     );
 
+    session->wan = config.wan;
     return session;
   }
 

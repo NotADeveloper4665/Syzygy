@@ -39,6 +39,7 @@ namespace rtsp_stream {
     crypto::PERM perm;
 
     bool input_only;
+    bool wan = false;
     bool host_audio;
     int width;
     int height;

@@ -6,6 +6,7 @@
 
 // local includes
 #include "input.h"
+#include "syzygy/wan.h"
 #include "platform/common.h"
 #include "thread_safe.h"
 #include "video_colorspace.h"
@@ -48,6 +49,7 @@ namespace video {
 
     int encodingFramerate; // Requested display framerate
     bool input_only;
+    std::shared_ptr<syzygy::wan_state> wan;
   };
 
   platf::mem_type_e map_base_dev_type(AVHWDeviceType type);
