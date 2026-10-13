@@ -182,10 +182,12 @@ with tempfile.TemporaryDirectory(prefix='syzygy-pair-check-') as directory:
                         video.sendto(b'PING', ('127.0.0.1', 49208))
                         audio.sendto(b'PING', ('127.0.0.1', 49210))
                         feedback = request('eclipse-passkey-test-1', {}, context, 'wan')
-                        if feedback.findtext('runtimeBitrate') == '1': break
+                        if feedback.findtext('runtimeBitrate') == '1' and feedback.findtext('pacing') == '1': break
                         time.sleep(.1)
                     assert feedback.findtext('encoderOverrides') == '1', 'WAN software encoder overrides not active'
                     assert feedback.findtext('runtimeBitrate') == '1', 'Software runtime bitrate not active'
+                    assert feedback.findtext('pacing') == '1', 'WAN sender pacing not active'
+                    assert feedback.findtext('pacingFallback') == '0', 'Fresh stream unexpectedly accumulated a sender backlog'
                     packet, _ = video.recvfrom(65536)
                     assert 0 < len(packet) <= 1120, 'WAN UDP packet exceeded conservative payload budget'
                     denied = request('eclipse-passkey-test-0', dict(rtt='30',jitter='0',loss='0'), context0, 'wan')

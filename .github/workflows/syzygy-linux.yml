@@ -69,6 +69,8 @@ jobs:
           ./syzygy-smoke
           g++ -std=c++17 -Wall -Wextra -Werror -Isrc tests/wan_smoke.cpp -pthread -o wan-smoke
           ./wan-smoke
+          g++ -std=c++17 -Wall -Wextra -Werror -Isrc tests/wan_pacing_smoke.cpp -o wan-pacing-smoke
+          ./wan-pacing-smoke
           g++ -std=c++17 -Wall -Wextra -Werror -Isrc tests/test_tailscale_pairing.cpp -lcurl -o tailscale-pairing-smoke
           ./tailscale-pairing-smoke
           g++ -std=c++17 -Wall -Wextra -Werror -Isrc tests/test_pipewire_memory.cpp -o pipewire-memory-smoke

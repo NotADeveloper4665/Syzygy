@@ -16,6 +16,7 @@ struct wan_state {
   std::atomic<int> fec{10};
   std::atomic<bool> runtime_bitrate{false};
   std::atomic<bool> pacing_active{false}, shared_sender_warning{false};
+  std::atomic<bool> pacing_failed{false}, pacing_capability_warning{false}, large_frame_warning{false};
   std::atomic<bool> encoder_overrides{false};
   std::mutex lock;
   int baseline_rtt = 0;
@@ -37,7 +38,8 @@ struct wan_state {
     }
     last = now;
     if (!baseline_rtt || rtt < baseline_rtt) baseline_rtt = std::max(1, rtt);
-    if (jitter < 8 && std::abs(rtt-previous_rtt) < 5) {
+    if (loss_per_mille < 10 && bitrate_kbps.load() <= std::min(1000, ceiling_kbps) &&
+        jitter < 8 && std::abs(rtt-previous_rtt) < 5) {
       if (++floor_stable >= 10) { baseline_rtt = std::max(1, rtt); floor_stable = 0; }
     } else floor_stable = 0;
     previous_rtt = rtt;
