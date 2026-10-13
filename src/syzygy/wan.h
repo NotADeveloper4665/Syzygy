@@ -18,6 +18,7 @@ struct wan_state {
   std::mutex lock;
   int baseline_rtt = 0;
   int stable = 0;
+  int healthy_fec = 0;
   int floor_stable = 0, previous_rtt = 0;
   std::chrono::steady_clock::time_point last{};
 
@@ -44,6 +45,10 @@ struct wan_state {
     }
     // Redundancy has a cost: never raise it while queueing delay is rising.
     int redundancy = congestion ? 5 : loss_per_mille >= 50 ? 35 : loss_per_mille >= 10 ? 20 : 5;
+    if (!congestion && loss_per_mille < 10 && fec.load() > 10) {
+      if (++healthy_fec < 3) redundancy = fec.load();
+      else { redundancy = std::max(5, fec.load()-10); healthy_fec = 0; }
+    } else healthy_fec = 0;
     if (!runtime_bitrate.load()) redundancy = std::min(10, redundancy);
     target = std::min(target, ceiling_kbps * 110 / (100 + redundancy));
     fec.store(redundancy);
@@ -54,7 +59,7 @@ struct wan_state {
     std::lock_guard guard(lock);
     // Conservative fallback when telemetry stops; no permanent optimistic FEC.
     if (!last.time_since_epoch().count() || std::chrono::steady_clock::now()-last > std::chrono::seconds(3)) return 10;
-    return fec.load();
+    return runtime_bitrate.load() ? fec.load() : std::min(10, fec.load());
   }
 };
 }

@@ -16,6 +16,12 @@ int main() {
   assert(a.feedback(30, 2, 60));
   assert(a.current_fec() == 35);
   assert(a.bitrate_kbps <= 10000*110/135);
+  a.last = {};
+  assert(a.feedback(30, 2, 0));
+  assert(a.current_fec() == 35); // No redundancy oscillation after one recovered sample.
+  a.runtime_bitrate = false;
+  assert(a.current_fec() <= 10); // Encoder failure immediately bounds redundancy.
+  a.runtime_bitrate = true;
   assert(b.bitrate_kbps == 0); // Isolated sessions.
   a.last = {};
   assert(a.feedback(150, 25, 60));
