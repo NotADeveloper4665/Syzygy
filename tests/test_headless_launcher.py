@@ -59,6 +59,23 @@ class LauncherTests(unittest.TestCase):
                 run.assert_not_called()
                 popen.assert_not_called()
 
+    def test_absolute_wayland_socket_is_accepted_only_inside_private_runtime(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as outside:
+            private_socket = Path(directory) / 'wayland-syzygy'
+            outside_socket = Path(outside) / 'wayland-syzygy'
+            with socket.socket(socket.AF_UNIX) as listener:
+                listener.bind(str(private_socket))
+                env = {'XDG_RUNTIME_DIR': directory,
+                       'SYZYGY_HEADLESS_RUNTIME_DIR': directory,
+                       'SYZYGY_HEADLESS_WAYLAND_DISPLAY': 'wayland-syzygy',
+                       'WAYLAND_DISPLAY': str(private_socket),
+                       'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/tmp/private-dbus'}
+                result = headless.private_display_environment(env)
+                self.assertEqual(result['WAYLAND_DISPLAY'], str(private_socket))
+                env['WAYLAND_DISPLAY'] = str(outside_socket)
+                with self.assertRaisesRegex(RuntimeError, 'expected socket inside the private runtime'):
+                    headless.private_display_environment(env)
+
     def test_activation_failure_does_not_start_an_unusable_desktop(self):
         with patch.object(headless, 'private_display_environment', return_value={'XDG_RUNTIME_DIR': '/tmp/private'}), \
              patch.object(headless.subprocess, 'run',
