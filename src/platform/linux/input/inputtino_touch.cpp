@@ -28,7 +28,7 @@ namespace platf::touch {
     // compositor instead, using client-scoped IDs to avoid cross-client collisions.
     if (syzygy::headless::active()) {
       auto &session = syzygy::headless::kwin_session::instance();
-      if (touch_port.width <= 0 || touch_port.height <= 0) return;
+      if (touch_port.width <= 0 || touch_port.height <= 0 || !session.start()) return;
       const auto x = wl_fixed_from_double(
         std::clamp(double(touch.x), 0.0, 1.0) * std::max(1, session.screen_width() - 1));
       const auto y = wl_fixed_from_double(
