@@ -1,6 +1,7 @@
 import importlib.util
 import os
 import subprocess
+import socket
 from pathlib import Path
 import tempfile
 import unittest
@@ -16,26 +17,51 @@ class LauncherTests(unittest.TestCase):
     def test_display_environment_reaches_dbus_before_desktop_starts(self):
         with tempfile.TemporaryDirectory() as directory:
             events = []
-            env = {'XDG_RUNTIME_DIR': directory, 'WAYLAND_DISPLAY': 'wayland-syzygy'}
-            child = MagicMock()
-            child.wait.return_value = 0
-            def run(command, **kwargs):
-                events.append(command)
-                self.assertEqual(kwargs['env'], env)
-            def start(command, **kwargs):
-                events.append(command)
-                return child
+            display_socket = Path(directory) / 'wayland-syzygy'
+            with socket.socket(socket.AF_UNIX) as listener:
+                listener.bind(str(display_socket))
+                env = {'XDG_RUNTIME_DIR': directory,
+                       'SYZYGY_HEADLESS_RUNTIME_DIR': directory,
+                       'SYZYGY_HEADLESS_WAYLAND_DISPLAY': 'wayland-syzygy',
+                       'WAYLAND_DISPLAY': 'wayland-syzygy',
+                       'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/tmp/private-dbus'}
+                child = MagicMock()
+                child.wait.return_value = 0
+                def run(command, **kwargs):
+                    events.append((command, kwargs['env']))
+                def start(command, **kwargs):
+                    events.append((command, kwargs['env']))
+                    return child
+                with patch.dict(headless.os.environ, env, clear=True), \
+                     patch.object(headless.subprocess, 'run', side_effect=run), \
+                     patch.object(headless.subprocess, 'Popen', side_effect=start):
+                    self.assertEqual(headless.desktop(Path('/usr/bin/syzygy'), ['-s']), 0)
+            self.assertEqual(events[0][0][0], 'dbus-update-activation-environment')
+            self.assertIn('WAYLAND_DISPLAY', events[0][0])
+            self.assertNotIn('--systemd', events[0][0])
+            self.assertEqual(events[1][0], ['plasmashell'])
+            self.assertEqual(events[2][0][0], '/usr/bin/syzygy')
+            self.assertEqual(events[2][1]['WAYLAND_DISPLAY'], 'wayland-syzygy')
+            self.assertEqual(events[2][1]['XDG_RUNTIME_DIR'], directory)
+
+    def test_desktop_refuses_native_or_unverified_wayland_display(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = {'XDG_RUNTIME_DIR': directory,
+                   'SYZYGY_HEADLESS_RUNTIME_DIR': directory,
+                   'SYZYGY_HEADLESS_WAYLAND_DISPLAY': 'wayland-syzygy',
+                   'WAYLAND_DISPLAY': 'wayland-0',
+                   'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/tmp/private-dbus'}
             with patch.dict(headless.os.environ, env, clear=True), \
-                 patch.object(headless.subprocess, 'run', side_effect=run), \
-                 patch.object(headless.subprocess, 'Popen', side_effect=start):
-                self.assertEqual(headless.desktop(Path('/usr/bin/syzygy'), ['-s']), 0)
-            self.assertEqual(events[0][0], 'dbus-update-activation-environment')
-            self.assertIn('WAYLAND_DISPLAY', events[0])
-            self.assertNotIn('--systemd', events[0])
-            self.assertEqual(events[1], ['plasmashell'])
+                 patch.object(headless.subprocess, 'run') as run, \
+                 patch.object(headless.subprocess, 'Popen') as popen:
+                with self.assertRaisesRegex(RuntimeError, 'non-private Wayland display'):
+                    headless.desktop(Path('/usr/bin/syzygy'), [])
+                run.assert_not_called()
+                popen.assert_not_called()
 
     def test_activation_failure_does_not_start_an_unusable_desktop(self):
-        with patch.object(headless.subprocess, 'run',
+        with patch.object(headless, 'private_display_environment', return_value={'XDG_RUNTIME_DIR': '/tmp/private'}), \
+             patch.object(headless.subprocess, 'run',
                           side_effect=subprocess.CalledProcessError(1, 'dbus-update-activation-environment')), \
              patch.object(headless.subprocess, 'Popen') as popen:
             with self.assertRaises(subprocess.CalledProcessError):
