@@ -108,7 +108,7 @@ def force_tablet_mode(env):
             lines.insert(section_end, 'TabletMode=on')
         else:
             lines[key_index] = 'TabletMode=on'
-    kwinrc.write_text('\\n'.join(lines) + '\\n')
+    kwinrc.write_text('\n'.join(lines) + '\n')
 
 
 def install_permission(runtime, binary):
