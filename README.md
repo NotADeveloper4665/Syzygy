@@ -97,7 +97,7 @@ KDE settings are temporary; Syzygy configuration and pairing keys remain persist
 Hardware encoding requires working vendor drivers;
 `-software` can select CPU encoding. This mode creates a separate desktop rather
 than attaching to another logged-in user’s desktop. Changing its display size during
-a stream and native touch/pen routing are not implemented yet. Gamepads require the
+a stream and native pen routing are not implemented yet. Native touch events can be sent by compatible clients; `--headless-touch` marks the private session for that workflow but does not force Plasma tablet mode. Gamepads require the
 normal uinput permissions. Automatic headless dependency installation currently
 supports Fedora; other distributions need the listed runtime programs installed.
 
