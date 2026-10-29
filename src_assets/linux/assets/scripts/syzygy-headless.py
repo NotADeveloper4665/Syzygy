@@ -8,6 +8,7 @@ import re
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -42,6 +43,8 @@ def private_environment(source, runtime, binary):
                XDG_CACHE_HOME=str(runtime / 'cache'),
                XDG_SESSION_TYPE='wayland', XDG_CURRENT_DESKTOP='KDE',
                SYZYGY_HEADLESS_SESSION='1', SYZYGY_HEADLESS_BINARY=str(binary),
+               SYZYGY_HEADLESS_RUNTIME_DIR=str(runtime),
+               SYZYGY_HEADLESS_WAYLAND_DISPLAY='wayland-syzygy',
                QT_QPA_PLATFORM='wayland', KWIN_COMPOSE='O2',
                QT_FORCE_STDERR_LOGGING='1', QT_LOGGING_TO_CONSOLE='1')
     return env
@@ -125,10 +128,39 @@ def install_permission(runtime, binary):
         'X-KDE-Wayland-Interfaces=zkde_screencast_unstable_v1,org_kde_kwin_fake_input\n')
 
 
+
+def private_display_environment(source):
+    """Fail closed unless KWin handed the wrapper its own private Wayland socket."""
+    expected_runtime = source.get('SYZYGY_HEADLESS_RUNTIME_DIR')
+    expected_display = source.get('SYZYGY_HEADLESS_WAYLAND_DISPLAY')
+    if not expected_runtime or not expected_display:
+        raise RuntimeError('Private headless session markers are missing')
+    runtime = Path(expected_runtime).resolve(strict=True)
+    current_runtime = Path(source.get('XDG_RUNTIME_DIR', '')).resolve(strict=True)
+    if current_runtime != runtime:
+        raise RuntimeError('Refusing to start Syzygy outside its private runtime directory')
+    display = source.get('WAYLAND_DISPLAY', '')
+    if display != expected_display or Path(display).name != display:
+        raise RuntimeError('Refusing to attach to a non-private Wayland display')
+    try:
+        display_socket = (runtime / display).resolve(strict=True)
+    except OSError as error:
+        raise RuntimeError('Private Wayland socket is not available') from error
+    if display_socket.parent != runtime or not stat.S_ISSOCK(display_socket.stat().st_mode):
+        raise RuntimeError('Wayland display is not a socket owned by the private runtime')
+    if not source.get('DBUS_SESSION_BUS_ADDRESS'):
+        raise RuntimeError('Private D-Bus session address is missing')
+    env = dict(source)
+    env.update(XDG_RUNTIME_DIR=str(runtime), WAYLAND_DISPLAY=display,
+               XDG_SESSION_TYPE='wayland', QT_QPA_PLATFORM='wayland')
+    return env
+
 def desktop(binary, arguments):
     children = Children()
     try:
-        env = dict(os.environ)
+        env = private_display_environment(os.environ)
+        print('Syzygy: verified private Wayland display; refusing native-session fallback',
+              file=sys.stderr, flush=True)
         # KWin supplies the private display to this child after D-Bus starts.
         # Propagate it before Plasma activates its activity manager and portals.
         # Never import into systemd's shared user manager (--systemd).
