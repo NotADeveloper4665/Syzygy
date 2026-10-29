@@ -140,16 +140,27 @@ def private_display_environment(source):
     if current_runtime != runtime:
         raise RuntimeError('Refusing to start Syzygy outside its private runtime directory')
     display = source.get('WAYLAND_DISPLAY', '')
-    if display != expected_display or Path(display).name != display:
-        raise RuntimeError('Refusing to attach to a non-private Wayland display')
+    display_path = Path(display) if display else None
+    if not display_path or display_path.name != expected_display:
+        raise RuntimeError(
+            f'Refusing non-private Wayland display {display!r}; '
+            f'expected socket {expected_display!r}')
+    # Wayland normally supplies a socket name, but some compositor launch paths
+    # export its absolute path. Accept either form only when it resolves to the
+    # exact expected socket inside this session's private runtime directory.
+    socket_path = display_path if display_path.is_absolute() else runtime / display_path
     try:
-        display_socket = (runtime / display).resolve(strict=True)
+        display_socket = socket_path.resolve(strict=True)
     except OSError as error:
-        raise RuntimeError('Private Wayland socket is not available') from error
-    if display_socket.parent != runtime or not stat.S_ISSOCK(display_socket.stat().st_mode):
-        raise RuntimeError('Wayland display is not a socket owned by the private runtime')
-    if not source.get('DBUS_SESSION_BUS_ADDRESS'):
-        raise RuntimeError('Private D-Bus session address is missing')
+        raise RuntimeError(
+            f'Private Wayland socket {socket_path} is not available') from error
+    if (display_socket.parent != runtime or display_socket.name != expected_display
+            or not stat.S_ISSOCK(display_socket.stat().st_mode)):
+        raise RuntimeError(
+            'Wayland display is not the expected socket inside the private runtime')
+    dbus_address = source.get('DBUS_SESSION_BUS_ADDRESS', '')
+    if not dbus_address.startswith('unix:'):
+        raise RuntimeError('Private D-Bus session address is missing or not a Unix socket')
     env = dict(source)
     env.update(XDG_RUNTIME_DIR=str(runtime), WAYLAND_DISPLAY=display,
                XDG_SESSION_TYPE='wayland', QT_QPA_PLATFORM='wayland')
