@@ -45,7 +45,7 @@ class LauncherTests(unittest.TestCase):
     def test_physical_desktop_and_audio_are_not_inherited(self):
         source = {'DISPLAY': ':0', 'WAYLAND_DISPLAY': 'wayland-0',
                   'DBUS_SESSION_BUS_ADDRESS': 'physical', 'PULSE_SERVER': 'physical',
-                  'PIPEWIRE_REMOTE': 'physical', 'HOME': '/home/test'}
+                  'PIPEWIRE_REMOTE': 'physical', 'HOME': '/home/test', 'SYZYGY_HEADLESS_TOUCH': '1'}
         env = headless.private_environment(source, Path('/tmp/private'), Path('/usr/bin/syzygy'))
         for key in ('DISPLAY', 'WAYLAND_DISPLAY', 'DBUS_SESSION_BUS_ADDRESS', 'PULSE_SERVER', 'PIPEWIRE_REMOTE'):
             self.assertNotIn(key, env)
@@ -55,6 +55,7 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(env['KWIN_COMPOSE'], 'O2')
         self.assertEqual(env['XDG_CONFIG_HOME'], '/tmp/private/config')
         self.assertEqual(env['CONFIGURATION_DIRECTORY'], '/home/test/.config')
+        self.assertEqual(env['SYZYGY_HEADLESS_TOUCH'], '1')
 
     def test_persistent_host_configuration_precedence(self):
         for source, expected in (({'HOME': '/home/test', 'XDG_CONFIG_HOME': '/persist'}, '/persist'),
