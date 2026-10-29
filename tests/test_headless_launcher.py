@@ -57,6 +57,30 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(env['CONFIGURATION_DIRECTORY'], '/home/test/.config')
         self.assertEqual(env['SYZYGY_HEADLESS_TOUCH'], '1')
 
+    def test_touch_mode_forces_tablet_mode_only_in_private_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / 'config'
+            env = {'XDG_CONFIG_HOME': str(config), 'SYZYGY_HEADLESS_TOUCH': '1'}
+            headless.force_tablet_mode(env)
+            self.assertIn('[Input]\\nTabletMode=on\\n', (config / 'kwinrc').read_text())
+
+    def test_touch_mode_preserves_other_kwin_settings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / 'config'
+            config.mkdir()
+            (config / 'kwinrc').write_text('[General]\\nFoo=bar\\n[Input]\\nTabletMode=auto\\nTouchpad=enabled\\n')
+            headless.force_tablet_mode({'XDG_CONFIG_HOME': str(config), 'SYZYGY_HEADLESS_TOUCH': '1'})
+            result = (config / 'kwinrc').read_text()
+            self.assertIn('Foo=bar', result)
+            self.assertIn('TabletMode=on', result)
+            self.assertIn('Touchpad=enabled', result)
+
+    def test_standard_headless_mode_does_not_force_tablet_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / 'config'
+            headless.force_tablet_mode({'XDG_CONFIG_HOME': str(config), 'SYZYGY_HEADLESS_TOUCH': '0'})
+            self.assertFalse(config.exists())
+
     def test_persistent_host_configuration_precedence(self):
         for source, expected in (({'HOME': '/home/test', 'XDG_CONFIG_HOME': '/persist'}, '/persist'),
                                  ({'XDG_CONFIG_HOME': '/persist', 'CONFIGURATION_DIRECTORY': '/service'}, '/service')):
