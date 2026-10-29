@@ -35,6 +35,8 @@ def private_environment(source, runtime, binary):
     env['CONFIGURATION_DIRECTORY'] = (source.get('CONFIGURATION_DIRECTORY') or
         source.get('XDG_CONFIG_HOME') or str(Path(source.get('HOME', str(Path.home()))) / '.config'))
     env['SUNSHINE_MIGRATE_CONFIG'] = '0'
+    # Keep the session mode explicit for desktop applications and input routing.
+    env['SYZYGY_HEADLESS_TOUCH'] = '1' if source.get('SYZYGY_HEADLESS_TOUCH') == '1' else '0'
     env.update(XDG_RUNTIME_DIR=str(runtime), XDG_DATA_HOME=str(runtime / 'data'),
                XDG_CONFIG_HOME=str(runtime / 'config'),
                XDG_CACHE_HOME=str(runtime / 'cache'),
@@ -148,7 +150,8 @@ def session(binary, arguments):
             '--height', str(height), '--output-count', '1', '--socket', 'wayland-syzygy',
             '--xwayland', '--no-lockscreen', '--no-global-shortcuts',
             '--exit-with-session', str(wrapper)], env)
-        print(f'Syzygy: starting private headless desktop {width}x{height}', file=sys.stderr, flush=True)
+        mode = 'touch-enabled' if env.get('SYZYGY_HEADLESS_TOUCH') == '1' else 'standard'
+        print(f'Syzygy: starting private {mode} KDE desktop {width}x{height}', file=sys.stderr, flush=True)
         result = compositor.wait()
         status_file = runtime / 'server-exit-status'
         if status_file.exists():
