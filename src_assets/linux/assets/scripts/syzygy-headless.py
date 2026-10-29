@@ -84,6 +84,33 @@ def wait_for(predicate, children, description, timeout=30):
     raise RuntimeError(f'Timed out waiting for {description}')
 
 
+def force_tablet_mode(env):
+    """Force Plasma/KWin tablet mode in this disposable private session."""
+    if env.get('SYZYGY_HEADLESS_TOUCH') != '1':
+        return
+    config_dir = Path(env['XDG_CONFIG_HOME'])
+    config_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+    kwinrc = config_dir / 'kwinrc'
+    # KWin reads Input/TabletMode during startup. The private XDG_CONFIG_HOME
+    # ensures this cannot modify the user's regular desktop configuration.
+    lines = kwinrc.read_text().splitlines() if kwinrc.exists() else []
+    section_start = next((i for i, line in enumerate(lines) if line.strip() == '[Input]'), None)
+    if section_start is None:
+        if lines and lines[-1].strip():
+            lines.append('')
+        lines.extend(['[Input]', 'TabletMode=on'])
+    else:
+        section_end = next((i for i in range(section_start + 1, len(lines))
+                            if lines[i].lstrip().startswith('[')), len(lines))
+        key_index = next((i for i in range(section_start + 1, section_end)
+                          if lines[i].split('=', 1)[0].strip() == 'TabletMode'), None)
+        if key_index is None:
+            lines.insert(section_end, 'TabletMode=on')
+        else:
+            lines[key_index] = 'TabletMode=on'
+    kwinrc.write_text('\\n'.join(lines) + '\\n')
+
+
 def install_permission(runtime, binary):
     apps = runtime / 'data/applications'
     apps.mkdir(parents=True, mode=0o700, exist_ok=True)
@@ -127,6 +154,9 @@ def session(binary, arguments):
     runtime = Path(env['XDG_RUNTIME_DIR'])
     width, height = size(env.get('SYZYGY_HEADLESS_SIZE', '1920x1080'))
     try:
+        # Force KWin tablet mode before the compositor reads its configuration.
+        # This edits only the disposable private KDE configuration.
+        force_tablet_mode(env)
         # Build the permission registry before the compositor or any client connects.
         # Keep it private so an existing user's KDE cache cannot hide this entry.
         subprocess.run(['kbuildsycoca6', '--noincremental'], env=env, check=True, timeout=30)
