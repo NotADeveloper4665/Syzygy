@@ -62,13 +62,13 @@ class LauncherTests(unittest.TestCase):
             config = Path(directory) / 'config'
             env = {'XDG_CONFIG_HOME': str(config), 'SYZYGY_HEADLESS_TOUCH': '1'}
             headless.force_tablet_mode(env)
-            self.assertIn('[Input]\\nTabletMode=on\\n', (config / 'kwinrc').read_text())
+            self.assertIn('[Input]\nTabletMode=on\n', (config / 'kwinrc').read_text())
 
     def test_touch_mode_preserves_other_kwin_settings(self):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / 'config'
             config.mkdir()
-            (config / 'kwinrc').write_text('[General]\\nFoo=bar\\n[Input]\\nTabletMode=auto\\nTouchpad=enabled\\n')
+            (config / 'kwinrc').write_text('[General]\nFoo=bar\n[Input]\nTabletMode=auto\nTouchpad=enabled\n')
             headless.force_tablet_mode({'XDG_CONFIG_HOME': str(config), 'SYZYGY_HEADLESS_TOUCH': '1'})
             result = (config / 'kwinrc').read_text()
             self.assertIn('Foo=bar', result)
