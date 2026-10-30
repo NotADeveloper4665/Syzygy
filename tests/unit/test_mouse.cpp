@@ -121,3 +121,46 @@ TEST_P(MouseHIDTest, AbsMoveInputTest) {
   EXPECT_EQ(new_loc.x, mouse_pos.x);
   EXPECT_EQ(new_loc.y, mouse_pos.y);
 }
+
+
+TEST(ClientTouchMappingTests, AddsSelectedMonitorOffset) {
+  input::touch_port_t port {
+    {1280, 0, 1920, 1080},
+    3200,
+    1080,
+    0.0f,
+    0.0f,
+    1.0f,
+  };
+  const auto mapped = input::map_client_to_touchport(port, {960.0f, 540.0f}, {1920.0f, 1080.0f});
+  ASSERT_TRUE(mapped.has_value());
+  EXPECT_FLOAT_EQ(mapped->first, 2240.0f);
+  EXPECT_FLOAT_EQ(mapped->second, 540.0f);
+}
+
+TEST(ClientTouchMappingTests, RemovesLetterboxBeforeApplyingMonitorOffset) {
+  input::touch_port_t port {
+    {1920, 0, 1600, 1200},
+    3520,
+    1200,
+    0.0f,
+    150.0f,
+    1.2f,
+  };
+  const auto mapped = input::map_client_to_touchport(port, {800.0f, 600.0f}, {1600.0f, 1200.0f});
+  ASSERT_TRUE(mapped.has_value());
+  EXPECT_FLOAT_EQ(mapped->first, 2720.0f);
+  EXPECT_FLOAT_EQ(mapped->second, 540.0f);
+}
+
+TEST(ClientTouchMappingTests, RejectsInvalidGeometry) {
+  input::touch_port_t port {
+    {0, 0, 0, 0},
+    0,
+    0,
+    0.0f,
+    0.0f,
+    1.0f,
+  };
+  EXPECT_FALSE(input::map_client_to_touchport(port, {10.0f, 10.0f}, {100.0f, 100.0f}).has_value());
+}

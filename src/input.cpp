@@ -457,6 +457,33 @@ namespace input {
    * @param size The size of the client's surface containing the value.
    * @return The host-relative coordinate pair if a touchport is available.
    */
+  std::optional<std::pair<float, float>> map_client_to_touchport(
+      const touch_port_t &touch_port,
+      const std::pair<float, float> &val,
+      const std::pair<float, float> &size) {
+    if (size.first <= 0.0f || size.second <= 0.0f ||
+        touch_port.width <= 0 || touch_port.height <= 0 ||
+        touch_port.env_width <= 0 || touch_port.env_height <= 0 ||
+        !std::isfinite(touch_port.scalar_inv) || touch_port.scalar_inv <= 0.0f) {
+      return std::nullopt;
+    }
+
+    const auto scalarX = touch_port.width / size.first;
+    const auto scalarY = touch_port.height / size.second;
+    float x = std::clamp(val.first, 0.0f, size.first) * scalarX;
+    float y = std::clamp(val.second, 0.0f, size.second) * scalarY;
+
+    x = std::clamp(x, touch_port.client_offsetX, touch_port.width - touch_port.client_offsetX);
+    y = std::clamp(y, touch_port.client_offsetY, touch_port.height - touch_port.client_offsetY);
+
+    // Add the selected monitor's logical desktop origin before normalization.
+    x = (x - touch_port.client_offsetX) * touch_port.scalar_inv + touch_port.offset_x;
+    y = (y - touch_port.client_offsetY) * touch_port.scalar_inv + touch_port.offset_y;
+    x = std::clamp(x, 0.0f, static_cast<float>(touch_port.env_width));
+    y = std::clamp(y, 0.0f, static_cast<float>(touch_port.env_height));
+    return std::pair {x, y};
+  }
+
   std::optional<std::pair<float, float>> client_to_touchport(std::shared_ptr<input_t> &input, const std::pair<float, float> &val, const std::pair<float, float> &size) {
     auto &touch_port_event = input->touch_port_event;
     auto &touch_port = input->touch_port;
@@ -468,19 +495,7 @@ namespace input {
       return std::nullopt;
     }
 
-    auto scalarX = touch_port.width / size.first;
-    auto scalarY = touch_port.height / size.second;
-
-    float x = std::clamp(val.first, 0.0f, size.first) * scalarX;
-    float y = std::clamp(val.second, 0.0f, size.second) * scalarY;
-
-    auto offsetX = touch_port.client_offsetX;
-    auto offsetY = touch_port.client_offsetY;
-
-    x = std::clamp(x, offsetX, (size.first * scalarX) - offsetX);
-    y = std::clamp(y, offsetY, (size.second * scalarY) - offsetY);
-
-    return std::pair {(x - offsetX) * touch_port.scalar_inv, (y - offsetY) * touch_port.scalar_inv};
+    return map_client_to_touchport(touch_port, val, size);
   }
 
   /**

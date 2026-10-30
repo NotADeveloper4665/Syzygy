@@ -25,6 +25,12 @@ namespace input {
 
   std::shared_ptr<input_t> alloc(safe::mail_t mail);
 
+  // Map client surface coordinates to the selected monitor in desktop space.
+  std::optional<std::pair<float, float>> map_client_to_touchport(
+      const touch_port_t &touch_port,
+      const std::pair<float, float> &val,
+      const std::pair<float, float> &size);
+
   struct touch_port_t: public platf::touch_port_t {
     int env_width, env_height;
 

@@ -120,12 +120,15 @@ namespace wl {
 
     void wl_done(wl_output *wl_output) {}
 
-    void wl_scale(wl_output *wl_output, std::int32_t factor) {}
+    void wl_scale(wl_output *wl_output, std::int32_t factor);
 
     wl_output *output;
     std::string name;
     std::string description;
     platf::touch_port_t viewport;
+    int logical_width {0};
+    int logical_height {0};
+    int output_scale {1};
     wl_output_listener wl_listener;
     zxdg_output_v1_listener xdg_listener;
   };

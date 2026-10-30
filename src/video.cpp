@@ -2113,8 +2113,10 @@ namespace video {
   }
 
   input::touch_port_t make_port(platf::display_t *display, const config_t &config) {
-    float wd = display->width;
-    float hd = display->height;
+    // Preserve physical capture dimensions while mapping touch in logical
+    // desktop coordinates on KDE Wayland.
+    float wd = display->input_width > 0 ? display->input_width : display->width;
+    float hd = display->input_height > 0 ? display->input_height : display->height;
 
     float wt = config.width;
     float ht = config.height;
