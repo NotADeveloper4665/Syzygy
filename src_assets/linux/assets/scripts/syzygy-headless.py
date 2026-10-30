@@ -149,6 +149,13 @@ def private_display_environment(source):
     # export its absolute path. Accept either form only when it resolves to the
     # exact expected socket inside this session's private runtime directory.
     socket_path = display_path if display_path.is_absolute() else runtime / display_path
+    # Reject an out-of-runtime path before checking whether the target exists.
+    # Otherwise a missing external path is misreported as a missing private
+    # socket, obscuring the actual boundary violation.
+    candidate = socket_path.resolve(strict=False)
+    if candidate.parent != runtime or candidate.name != expected_display:
+        raise RuntimeError(
+            'Wayland display is not the expected socket inside the private runtime')
     try:
         display_socket = socket_path.resolve(strict=True)
     except OSError as error:
