@@ -38,6 +38,13 @@ namespace input {
     }
   };
 
+  // Map client surface coordinates to the selected monitor in desktop space.
+  std::optional<std::pair<float, float>> map_client_to_touchport(
+      const touch_port_t &touch_port,
+      const std::pair<float, float> &val,
+      const std::pair<float, float> &size);
+
+
   /**
    * @brief Scale the ellipse axes according to the provided size.
    * @param val The major and minor axis pair.

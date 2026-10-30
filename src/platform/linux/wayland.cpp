@@ -144,7 +144,15 @@ namespace wl {
   }
 
   void monitor_t::xdg_size(zxdg_output_v1 *, std::int32_t width, std::int32_t height) {
+    logical_width = width;
+    logical_height = height;
     BOOST_LOG(info) << "Logical size: "sv << width << 'x' << height;
+  }
+
+  void monitor_t::wl_scale(wl_output *, std::int32_t factor) {
+    output_scale = std::max(1, factor);
+    if (logical_width <= 0 && viewport.width > 0) logical_width = viewport.width / output_scale;
+    if (logical_height <= 0 && viewport.height > 0) logical_height = viewport.height / output_scale;
   }
 
   void monitor_t::wl_mode(
@@ -156,6 +164,11 @@ namespace wl {
   ) {
     viewport.width = width;
     viewport.height = height;
+
+    // Prefer xdg-output logical_size (including KWin fractional scaling).
+    // wl_output.scale is only an integer-scale fallback.
+    if (logical_width <= 0) logical_width = width / std::max(1, output_scale);
+    if (logical_height <= 0) logical_height = height / std::max(1, output_scale);
 
     BOOST_LOG(info) << "Resolution: "sv << width << 'x' << height;
   }

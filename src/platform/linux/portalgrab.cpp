@@ -1054,29 +1054,48 @@ namespace portal {
         return -1;
       }
 
-      // Map absolute input to the virtual output rather than the primary monitor.
+      // PipeWire dimensions are physical capture pixels. Map input through
+      // KDE's logical desktop geometry so fractional scaling is not mixed in.
+      input_width = width;
+      input_height = height;
       offset_x = geometry.x;
       offset_y = geometry.y;
       env_width = width;
       env_height = height;
       bool positioned = geometry.has_position;
-      for (const auto &monitor : wl::monitors()) {
-        env_width = std::max(env_width, monitor->viewport.offset_x + monitor->viewport.width);
-        env_height = std::max(env_height, monitor->viewport.offset_y + monitor->viewport.height);
+      const auto monitors = wl::monitors();
+      int min_x = 0, min_y = 0, max_x = 0, max_y = 0;
+      for (const auto &monitor : monitors) {
+        const int logical_width = monitor->logical_width > 0 ? monitor->logical_width : monitor->viewport.width;
+        const int logical_height = monitor->logical_height > 0 ? monitor->logical_height : monitor->viewport.height;
+        min_x = std::min(min_x, monitor->viewport.offset_x);
+        min_y = std::min(min_y, monitor->viewport.offset_y);
+        max_x = std::max(max_x, monitor->viewport.offset_x + logical_width);
+        max_y = std::max(max_y, monitor->viewport.offset_y + logical_height);
+      }
+      if (!monitors.empty()) {
+        env_width = std::max(1, max_x - min_x);
+        env_height = std::max(1, max_y - min_y);
+      }
+      for (const auto &monitor : monitors) {
         if (!geometry.mapping_id.empty() && monitor->name == geometry.mapping_id) {
           offset_x = monitor->viewport.offset_x;
           offset_y = monitor->viewport.offset_y;
+          input_width = monitor->logical_width > 0 ? monitor->logical_width : width;
+          input_height = monitor->logical_height > 0 ? monitor->logical_height : height;
           positioned = true;
         }
       }
+      offset_x -= min_x;
+      offset_y -= min_y;
       if (config::video.portal_virtual_display && !positioned) {
         BOOST_LOG(error) << "Cannot locate the virtual monitor in the Wayland output layout; absolute input would target the wrong screen"sv;
         close(pipewire_fd);
         session_cache_t::instance().invalidate();
         return -1;
       }
-      env_width = std::max(env_width, offset_x + width);
-      env_height = std::max(env_height, offset_y + height);
+      env_width = std::max(env_width, offset_x + input_width);
+      env_height = std::max(env_height, offset_y + input_height);
       framerate = config.framerate;
 
       pipewire.init(pipewire_fd, pipewire_node);

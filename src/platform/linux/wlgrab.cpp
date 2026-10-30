@@ -18,6 +18,8 @@ using namespace std::literals;
 namespace wl {
   static int env_width;
   static int env_height;
+  static int env_origin_x;
+  static int env_origin_y;
 
   struct img_t: public platf::img_t {
     ~img_t() override {
@@ -66,10 +68,12 @@ namespace wl {
 
       output = monitor->output;
 
-      offset_x = monitor->viewport.offset_x;
-      offset_y = monitor->viewport.offset_y;
+      offset_x = monitor->viewport.offset_x - ::wl::env_origin_x;
+      offset_y = monitor->viewport.offset_y - ::wl::env_origin_y;
       width = monitor->viewport.width;
       height = monitor->viewport.height;
+      input_width = monitor->logical_width > 0 ? monitor->logical_width : width;
+      input_height = monitor->logical_height > 0 ? monitor->logical_height : height;
 
       this->env_width = ::wl::env_width;
       this->env_height = ::wl::env_height;
@@ -418,6 +422,8 @@ namespace platf {
 
     wl::env_width = 0;
     wl::env_height = 0;
+    wl::env_origin_x = 0;
+    wl::env_origin_y = 0;
 
     for (auto &monitor : interface.monitors) {
       monitor->listen(interface.output_manager);
@@ -425,16 +431,27 @@ namespace platf {
 
     display.roundtrip();
 
+    // Compute the desktop input bounds in KWin logical coordinates. Capture
+    // dimensions from wl_output.mode remain physical pixels.
+    int min_x = 0, min_y = 0, max_x = 0, max_y = 0;
+    for (const auto &monitor : interface.monitors) {
+      const int logical_width = monitor->logical_width > 0 ? monitor->logical_width : monitor->viewport.width;
+      const int logical_height = monitor->logical_height > 0 ? monitor->logical_height : monitor->viewport.height;
+      min_x = std::min(min_x, monitor->viewport.offset_x);
+      min_y = std::min(min_y, monitor->viewport.offset_y);
+      max_x = std::max(max_x, monitor->viewport.offset_x + logical_width);
+      max_y = std::max(max_y, monitor->viewport.offset_y + logical_height);
+    }
+    wl::env_origin_x = min_x;
+    wl::env_origin_y = min_y;
+    wl::env_width = std::max(1, max_x - min_x);
+    wl::env_height = std::max(1, max_y - min_y);
+
     BOOST_LOG(info) << "-------- Start of Wayland monitor list --------"sv;
 
     for (int x = 0; x < interface.monitors.size(); ++x) {
       auto monitor = interface.monitors[x].get();
-
-      wl::env_width = std::max(wl::env_width, (int) (monitor->viewport.offset_x + monitor->viewport.width));
-      wl::env_height = std::max(wl::env_height, (int) (monitor->viewport.offset_y + monitor->viewport.height));
-
       BOOST_LOG(info) << "Monitor " << x << " is "sv << monitor->name << ": "sv << monitor->description;
-
       display_names.emplace_back(std::to_string(x));
     }
 

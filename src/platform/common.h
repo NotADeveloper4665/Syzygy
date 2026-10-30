@@ -540,6 +540,9 @@ namespace platf {
 
     int width, height;
 
+    // Logical desktop geometry for input; capture buffers retain physical dimensions.
+    int input_width {0}, input_height {0};
+
   protected:
     // collect capture timing data (at loglevel debug)
     logging::time_delta_periodic_logger sleep_overshoot_logger = {debug, "Frame capture sleep overshoot"};
