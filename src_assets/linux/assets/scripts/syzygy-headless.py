@@ -8,6 +8,7 @@ import re
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -35,11 +36,15 @@ def private_environment(source, runtime, binary):
     env['CONFIGURATION_DIRECTORY'] = (source.get('CONFIGURATION_DIRECTORY') or
         source.get('XDG_CONFIG_HOME') or str(Path(source.get('HOME', str(Path.home()))) / '.config'))
     env['SUNSHINE_MIGRATE_CONFIG'] = '0'
+    # Keep the session mode explicit for desktop applications and input routing.
+    env['SYZYGY_HEADLESS_TOUCH'] = '1' if source.get('SYZYGY_HEADLESS_TOUCH') == '1' else '0'
     env.update(XDG_RUNTIME_DIR=str(runtime), XDG_DATA_HOME=str(runtime / 'data'),
                XDG_CONFIG_HOME=str(runtime / 'config'),
                XDG_CACHE_HOME=str(runtime / 'cache'),
                XDG_SESSION_TYPE='wayland', XDG_CURRENT_DESKTOP='KDE',
                SYZYGY_HEADLESS_SESSION='1', SYZYGY_HEADLESS_BINARY=str(binary),
+               SYZYGY_HEADLESS_RUNTIME_DIR=str(runtime),
+               SYZYGY_HEADLESS_WAYLAND_DISPLAY='wayland-syzygy',
                QT_QPA_PLATFORM='wayland', KWIN_COMPOSE='O2',
                QT_FORCE_STDERR_LOGGING='1', QT_LOGGING_TO_CONSOLE='1')
     return env
@@ -82,6 +87,33 @@ def wait_for(predicate, children, description, timeout=30):
     raise RuntimeError(f'Timed out waiting for {description}')
 
 
+def force_tablet_mode(env):
+    """Force Plasma/KWin tablet mode in this disposable private session."""
+    if env.get('SYZYGY_HEADLESS_TOUCH') != '1':
+        return
+    config_dir = Path(env['XDG_CONFIG_HOME'])
+    config_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+    kwinrc = config_dir / 'kwinrc'
+    # KWin reads Input/TabletMode during startup. The private XDG_CONFIG_HOME
+    # ensures this cannot modify the user's regular desktop configuration.
+    lines = kwinrc.read_text().splitlines() if kwinrc.exists() else []
+    section_start = next((i for i, line in enumerate(lines) if line.strip() == '[Input]'), None)
+    if section_start is None:
+        if lines and lines[-1].strip():
+            lines.append('')
+        lines.extend(['[Input]', 'TabletMode=on'])
+    else:
+        section_end = next((i for i in range(section_start + 1, len(lines))
+                            if lines[i].lstrip().startswith('[')), len(lines))
+        key_index = next((i for i in range(section_start + 1, section_end)
+                          if lines[i].split('=', 1)[0].strip() == 'TabletMode'), None)
+        if key_index is None:
+            lines.insert(section_end, 'TabletMode=on')
+        else:
+            lines[key_index] = 'TabletMode=on'
+    kwinrc.write_text('\n'.join(lines) + '\n')
+
+
 def install_permission(runtime, binary):
     apps = runtime / 'data/applications'
     apps.mkdir(parents=True, mode=0o700, exist_ok=True)
@@ -96,10 +128,57 @@ def install_permission(runtime, binary):
         'X-KDE-Wayland-Interfaces=zkde_screencast_unstable_v1,org_kde_kwin_fake_input\n')
 
 
+
+def private_display_environment(source):
+    """Fail closed unless KWin handed the wrapper its own private Wayland socket."""
+    expected_runtime = source.get('SYZYGY_HEADLESS_RUNTIME_DIR')
+    expected_display = source.get('SYZYGY_HEADLESS_WAYLAND_DISPLAY')
+    if not expected_runtime or not expected_display:
+        raise RuntimeError('Private headless session markers are missing')
+    runtime = Path(expected_runtime).resolve(strict=True)
+    current_runtime = Path(source.get('XDG_RUNTIME_DIR', '')).resolve(strict=True)
+    if current_runtime != runtime:
+        raise RuntimeError('Refusing to start Syzygy outside its private runtime directory')
+    display = source.get('WAYLAND_DISPLAY', '')
+    display_path = Path(display) if display else None
+    if not display_path or display_path.name != expected_display:
+        raise RuntimeError(
+            f'Refusing non-private Wayland display {display!r}; '
+            f'expected socket {expected_display!r}')
+    # Wayland normally supplies a socket name, but some compositor launch paths
+    # export its absolute path. Accept either form only when it resolves to the
+    # exact expected socket inside this session's private runtime directory.
+    socket_path = display_path if display_path.is_absolute() else runtime / display_path
+    # Reject an out-of-runtime path before checking whether the target exists.
+    # Otherwise a missing external path is misreported as a missing private
+    # socket, obscuring the actual boundary violation.
+    candidate = socket_path.resolve(strict=False)
+    if candidate.parent != runtime or candidate.name != expected_display:
+        raise RuntimeError(
+            'Wayland display is not the expected socket inside the private runtime')
+    try:
+        display_socket = socket_path.resolve(strict=True)
+    except OSError as error:
+        raise RuntimeError(
+            f'Private Wayland socket {socket_path} is not available') from error
+    if (display_socket.parent != runtime or display_socket.name != expected_display
+            or not stat.S_ISSOCK(display_socket.stat().st_mode)):
+        raise RuntimeError(
+            'Wayland display is not the expected socket inside the private runtime')
+    dbus_address = source.get('DBUS_SESSION_BUS_ADDRESS', '')
+    if not dbus_address.startswith('unix:'):
+        raise RuntimeError('Private D-Bus session address is missing or not a Unix socket')
+    env = dict(source)
+    env.update(XDG_RUNTIME_DIR=str(runtime), WAYLAND_DISPLAY=display,
+               XDG_SESSION_TYPE='wayland', QT_QPA_PLATFORM='wayland')
+    return env
+
 def desktop(binary, arguments):
     children = Children()
     try:
-        env = dict(os.environ)
+        env = private_display_environment(os.environ)
+        print('Syzygy: verified private Wayland display; refusing native-session fallback',
+              file=sys.stderr, flush=True)
         # KWin supplies the private display to this child after D-Bus starts.
         # Propagate it before Plasma activates its activity manager and portals.
         # Never import into systemd's shared user manager (--systemd).
@@ -125,6 +204,9 @@ def session(binary, arguments):
     runtime = Path(env['XDG_RUNTIME_DIR'])
     width, height = size(env.get('SYZYGY_HEADLESS_SIZE', '1920x1080'))
     try:
+        # Force KWin tablet mode before the compositor reads its configuration.
+        # This edits only the disposable private KDE configuration.
+        force_tablet_mode(env)
         # Build the permission registry before the compositor or any client connects.
         # Keep it private so an existing user's KDE cache cannot hide this entry.
         subprocess.run(['kbuildsycoca6', '--noincremental'], env=env, check=True, timeout=30)
@@ -148,7 +230,8 @@ def session(binary, arguments):
             '--height', str(height), '--output-count', '1', '--socket', 'wayland-syzygy',
             '--xwayland', '--no-lockscreen', '--no-global-shortcuts',
             '--exit-with-session', str(wrapper)], env)
-        print(f'Syzygy: starting private headless desktop {width}x{height}', file=sys.stderr, flush=True)
+        mode = 'touch-enabled' if env.get('SYZYGY_HEADLESS_TOUCH') == '1' else 'standard'
+        print(f'Syzygy: starting private {mode} KDE desktop {width}x{height}', file=sys.stderr, flush=True)
         result = compositor.wait()
         status_file = runtime / 'server-exit-status'
         if status_file.exists():

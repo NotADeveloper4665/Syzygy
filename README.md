@@ -8,7 +8,7 @@ Syzygy is a self-hosted streaming host for compatible Moonlight clients, with CL
 - PIN-free Eclipse pairing with a persistent passkey shown on interactive Linux startup. Anyone holding it can pair with full host permissions; paired devices reconnect without entering it again.
 - Cryptographically random passkey with private file permissions and atomic creation.
 - Linux source installer for apt, dnf, zypper, pacman, and apk systems. It installs build dependencies, builds the server, and prints the host key and automatic-mode start command.
-- Managed headless Wayland desktop: `syzygy -s -auto -headless -psk` (no graphical login required; install the headless runtime below).
+- Managed headless Wayland desktop: `syzygy -s -auto -headless -psk`; touch-session variant: `syzygy -s -auto --headless-touch -psk` (no graphical login required; install the headless runtime below).
 - Opt-in Linux Wayland portal virtual monitor: `syzygy -s -auto -virtual -psk`. Requires a logged-in desktop and portal advertising virtual-monitor support; client-driven resizing is pending.
 - Automated Linux build and tests for key storage, concurrency, unsafe files, argument handling, and stdout redaction.
 
@@ -97,7 +97,7 @@ KDE settings are temporary; Syzygy configuration and pairing keys remain persist
 Hardware encoding requires working vendor drivers;
 `-software` can select CPU encoding. This mode creates a separate desktop rather
 than attaching to another logged-in user’s desktop. Changing its display size during
-a stream and native touch/pen routing are not implemented yet. Gamepads require the
+a stream and native pen routing are not implemented yet. Native touch events can be sent by compatible clients. In `--headless-touch`, touch events are routed through KWin's private fake-input Wayland interface instead of host-wide uinput devices; this keeps touch on the Syzygy virtual desktop. The private KWin protocol does not expose pen pressure/tool semantics yet, so pen events are rejected in headless mode rather than leaking into the physical desktop. The mode also forces KWin's `Input/TabletMode=on` setting in the disposable private KDE configuration. Gamepads require the
 normal uinput permissions. Automatic headless dependency installation currently
 supports Fedora; other distributions need the listed runtime programs installed.
 

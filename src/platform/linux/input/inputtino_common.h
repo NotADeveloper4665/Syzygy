@@ -8,6 +8,7 @@
 #include <boost/locale.hpp>
 #include <inputtino/input.hpp>
 #include <libevdev/libevdev.h>
+#include <atomic>
 
 // local includes
 #include "src/config.h"
@@ -18,6 +19,10 @@
 using namespace std::literals;
 
 namespace platf {
+
+  // KWin fake-input touch IDs are compositor-global, while Moonlight pointer IDs
+  // are only unique within one client. Reserve a disjoint 16-bit range per client.
+  inline std::atomic<uint32_t> next_headless_touch_id_base {1};
 
   using joypads_t = std::variant<inputtino::XboxOneJoypad, inputtino::SwitchJoypad, inputtino::PS5Joypad>;
 
@@ -86,6 +91,7 @@ namespace platf {
       }
     }
 
+    uint32_t headless_touch_id_base {next_headless_touch_id_base.fetch_add(0x10000, std::memory_order_relaxed)};
     input_raw_t *global;
 
     // Device state and handles for pen and touch input must be stored in the per-client

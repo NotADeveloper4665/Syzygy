@@ -13,6 +13,7 @@ namespace syzygy {
     bool capture_override = false;
     bool virtual_display = false;
     bool headless = false;
+    bool headless_touch = false;
     bool tails = false;
     bool quic = false;
     bool status = false;
