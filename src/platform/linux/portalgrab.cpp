@@ -1073,8 +1073,10 @@ namespace portal {
         max_x = std::max(max_x, monitor->viewport.offset_x + logical_width);
         max_y = std::max(max_y, monitor->viewport.offset_y + logical_height);
       }
-      env_width = std::max(env_width, max_x - min_x);
-      env_height = std::max(env_height, max_y - min_y);
+      if (!monitors.empty()) {
+        env_width = std::max(1, max_x - min_x);
+        env_height = std::max(1, max_y - min_y);
+      }
       for (const auto &monitor : monitors) {
         if (!geometry.mapping_id.empty() && monitor->name == geometry.mapping_id) {
           offset_x = monitor->viewport.offset_x;
