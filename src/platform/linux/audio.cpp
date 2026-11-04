@@ -90,7 +90,7 @@ namespace platf {
     int status;
 
     mic->mic.reset(
-      pa_simple_new(nullptr, "syzygy", pa_stream_direction_t::PA_STREAM_RECORD, source_name.c_str(), "syzygy-record", &ss, &pa_map, &pa_attr, &status)
+      pa_simple_new(nullptr, "sunshine", pa_stream_direction_t::PA_STREAM_RECORD, source_name.c_str(), "sunshine-record", &ss, &pa_map, &pa_attr, &status)
     );
 
     if (!mic->mic) {
@@ -201,7 +201,7 @@ namespace platf {
       int init() {
         events = std::make_unique<safe::event_t<ctx_event_e>>();
         loop.reset(pa_mainloop_new());
-        ctx.reset(pa_context_new(pa_mainloop_get_api(loop.get()), "syzygy"));
+        ctx.reset(pa_context_new(pa_mainloop_get_api(loop.get()), "sunshine"));
 
         events_cb = std::make_unique<std::function<void(ctx_t::pointer)>>([this](ctx_t::pointer ctx) {
           switch (pa_context_get_state(ctx)) {
@@ -293,9 +293,9 @@ namespace platf {
       }
 
       std::optional<sink_t> sink_info() override {
-        constexpr auto stereo = "sink-syzygy-stereo";
-        constexpr auto surround51 = "sink-syzygy-surround51";
-        constexpr auto surround71 = "sink-syzygy-surround71";
+        constexpr auto stereo = "sink-sunshine-stereo";
+        constexpr auto surround51 = "sink-sunshine-surround51";
+        constexpr auto surround71 = "sink-sunshine-surround71";
 
         auto alarm = safe::make_alarm<int>();
 
@@ -316,7 +316,7 @@ namespace platf {
             return;
           }
 
-          // Ensure Syzygy won't create a sink that already exists.
+          // Ensure Sunshine won't create a sink that already exists.
           if (!std::strcmp(sink_info->name, stereo)) {
             index.stereo = sink_info->owner_module;
 
@@ -449,6 +449,15 @@ namespace platf {
         // but this happens right after the swap so the default returned by PA was not
         // the new one just set!
         auto sink_name = config::audio.sink;
+        // Translate persisted names from the inherited Sunshine fork so old
+        // configurations continue to select the corresponding Syzygy sink.
+        if (sink_name == "sink-sunshine-stereo") {
+          sink_name = "sink-syzygy-stereo";
+        } else if (sink_name == "sink-sunshine-surround51") {
+          sink_name = "sink-syzygy-surround51";
+        } else if (sink_name == "sink-sunshine-surround71") {
+          sink_name = "sink-syzygy-surround71";
+        }
         if (sink_name.empty()) {
           sink_name = requested_sink;
         }
