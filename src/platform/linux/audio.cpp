@@ -449,6 +449,15 @@ namespace platf {
         // but this happens right after the swap so the default returned by PA was not
         // the new one just set!
         auto sink_name = config::audio.sink;
+        // Translate persisted names from the inherited Sunshine fork so old
+        // configurations continue to select the corresponding Syzygy sink.
+        if (sink_name == "sink-sunshine-stereo") {
+          sink_name = "sink-syzygy-stereo";
+        } else if (sink_name == "sink-sunshine-surround51") {
+          sink_name = "sink-syzygy-surround51";
+        } else if (sink_name == "sink-sunshine-surround71") {
+          sink_name = "sink-syzygy-surround71";
+        }
         if (sink_name.empty()) {
           sink_name = requested_sink;
         }

@@ -63,6 +63,34 @@ class LauncherTests(unittest.TestCase):
             self.assertEqual(env['CONFIGURATION_DIRECTORY'], expected)
             self.assertEqual(env['SUNSHINE_MIGRATE_CONFIG'], '0')
 
+    def test_headless_audio_is_verified_and_pinned_to_syzygy(self):
+        calls = []
+        def run(command, **kwargs):
+            calls.append(command)
+            result = MagicMock()
+            joined = ' '.join(command)
+            result.stdout = ('syzygy_headless\n' if joined == 'pactl get-default-sink'
+                             else '42\tsyzygy_headless.monitor\tPipeWire\tfloat32le 2ch 48000Hz\tSUSPENDED\n'
+                             if joined == 'pactl list short sources' else '')
+            return result
+        env = {}
+        with patch.object(headless.subprocess, 'run', side_effect=run):
+            headless.configure_headless_audio(env)
+        self.assertEqual(env['PULSE_SINK'], 'syzygy_headless')
+        self.assertIn(['pactl', 'get-default-sink'], calls)
+        self.assertIn(['pactl', 'list', 'short', 'sources'], calls)
+
+    def test_headless_audio_fails_if_syzygy_monitor_is_missing(self):
+        def run(command, **kwargs):
+            result = MagicMock()
+            joined = ' '.join(command)
+            result.stdout = ('syzygy_headless\n' if joined == 'pactl get-default-sink'
+                             else '99\tunrelated.monitor\tPipeWire\tfloat32le 2ch 48000Hz\tSUSPENDED\n'
+                             if joined == 'pactl list short sources' else '')
+            return result
+        with patch.object(headless.subprocess, 'run', side_effect=run):
+            with self.assertRaisesRegex(RuntimeError, 'monitor source was not created'):
+                headless.configure_headless_audio({})
     def test_size_validation(self):
         self.assertEqual(headless.size('1920x1080'), (1920, 1080))
         for value in ('0x0', '9999x1080', '1920x1080;id', '1920x-1'):
