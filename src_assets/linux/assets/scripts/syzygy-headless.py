@@ -105,7 +105,7 @@ def desktop(binary, arguments):
         # Never import into systemd's shared user manager (--systemd).
         subprocess.run(['dbus-update-activation-environment',
             'WAYLAND_DISPLAY', 'DISPLAY', 'XAUTHORITY', 'XDG_RUNTIME_DIR',
-            'XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE', 'QT_QPA_PLATFORM'],
+            'XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE', 'QT_QPA_PLATFORM', 'PULSE_SINK'],
             env=env, check=True, timeout=20)
         children.start(['plasmashell'], env)
         # Pass original shortcut semantics to Syzygy, with the private backend
@@ -118,6 +118,30 @@ def desktop(binary, arguments):
     finally:
         children.close()
 
+
+def configure_headless_audio(env):
+    """Create and verify the private Syzygy output before starting desktop apps."""
+    subprocess.run(['pactl', 'load-module', 'module-null-sink',
+                    'sink_name=syzygy_headless',
+                    'sink_properties=device.description=Syzygy'],
+                   env=env, check=True, timeout=20, capture_output=True, text=True)
+    subprocess.run(['pactl', 'set-default-sink', 'syzygy_headless'],
+                   env=env, check=True, timeout=20, capture_output=True, text=True)
+    default_sink = subprocess.run(['pactl', 'get-default-sink'], env=env,
+                                  check=True, timeout=10, capture_output=True,
+                                  text=True).stdout.strip()
+    if default_sink != 'syzygy_headless':
+        raise RuntimeError(f'Headless default audio output is {default_sink!r}, expected Syzygy')
+    sources = subprocess.run(['pactl', 'list', 'short', 'sources'], env=env,
+                              check=True, timeout=10, capture_output=True,
+                              text=True).stdout.splitlines()
+    monitor = any(len(line.split()) >= 2 and line.split()[1] == 'syzygy_headless.monitor'
+                  for line in sources)
+    if not monitor:
+        raise RuntimeError('Syzygy headless audio monitor source was not created')
+    env['PULSE_SINK'] = 'syzygy_headless'
+    print('Syzygy: headless audio output is Syzygy (monitor: syzygy_headless.monitor)',
+          file=sys.stderr, flush=True)
 
 def session(binary, arguments):
     children = Children()
@@ -135,10 +159,7 @@ def session(binary, arguments):
         wait_for(lambda: (runtime / 'pulse/native').exists(), children, 'audio server')
         # A null sink gives applications a working default audio output with no
         # physical audio device. Syzygy captures its monitor through PulseAudio.
-        for command in (['pactl', 'load-module', 'module-null-sink',
-                         'sink_name=syzygy_headless', 'sink_properties=device.description=Syzygy'],
-                        ['pactl', 'set-default-sink', 'syzygy_headless']):
-            subprocess.run(command, env=env, check=True, timeout=20, stdout=subprocess.DEVNULL)
+        configure_headless_audio(env)
         env['SYZYGY_HEADLESS_ARGUMENTS'] = json.dumps(arguments)
         wrapper = runtime / 'desktop-session'
         wrapper.write_text('#!/bin/sh\nexec ' + shlex.join(
