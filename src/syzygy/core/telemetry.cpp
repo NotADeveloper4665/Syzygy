@@ -23,6 +23,7 @@ bool valid_sample(const telemetry_sample& sample) noexcept {
   return valid_duration(sample.capture_ms) &&
          valid_duration(sample.encode_ms) &&
          valid_duration(sample.send_queue_ms) &&
+         valid_duration(sample.host_pipeline_ms) &&
          valid_duration(sample.network_rtt_ms) &&
          valid_duration(sample.network_jitter_ms) &&
          valid_loss(sample.packet_loss_per_mille) &&
@@ -39,6 +40,7 @@ bool valid_policy(const telemetry_policy& policy) noexcept {
          valid_threshold(policy.capture_threshold_ms) &&
          valid_threshold(policy.encode_threshold_ms) &&
          valid_threshold(policy.send_queue_threshold_ms) &&
+         valid_threshold(policy.host_pipeline_threshold_ms) &&
          valid_threshold(policy.network_rtt_threshold_ms) &&
          valid_threshold(policy.network_jitter_threshold_ms) &&
          valid_threshold(policy.packet_loss_threshold_per_mille, 1000.0) &&
@@ -73,6 +75,7 @@ pipeline_assessment assess_pipeline(
   bool capture = false;
   bool encode = false;
   bool network = false;
+  bool host_pipeline = false;
   bool client = false;
 
   const bool capture_observed = sample.capture_ms.has_value();
@@ -86,6 +89,7 @@ pipeline_assessment assess_pipeline(
   observed = static_cast<unsigned int>(capture_observed) +
              static_cast<unsigned int>(encode_observed) +
              static_cast<unsigned int>(network_observed) +
+             static_cast<unsigned int>(sample.host_pipeline_ms.has_value()) +
              static_cast<unsigned int>(client_observed);
 
   capture = elevated(sample.capture_ms, policy.capture_threshold_ms);
@@ -94,12 +98,14 @@ pipeline_assessment assess_pipeline(
             elevated(sample.network_rtt_ms, policy.network_rtt_threshold_ms) ||
             elevated(sample.network_jitter_ms, policy.network_jitter_threshold_ms) ||
             elevated(sample.packet_loss_per_mille, policy.packet_loss_threshold_per_mille);
+  host_pipeline = elevated(sample.host_pipeline_ms, policy.host_pipeline_threshold_ms);
   client = elevated(sample.client_decode_ms, policy.client_decode_threshold_ms) ||
            elevated(sample.client_presentation_ms, policy.client_presentation_threshold_ms);
 
   const auto elevated_count = static_cast<unsigned int>(capture) +
                              static_cast<unsigned int>(encode) +
                              static_cast<unsigned int>(network) +
+                             static_cast<unsigned int>(host_pipeline) +
                              static_cast<unsigned int>(client);
 
   if (observed < policy.minimum_observed_stages) {
@@ -110,7 +116,7 @@ pipeline_assessment assess_pipeline(
   const bool complete_host_pipeline = sample.capture_ms.has_value() &&
                                       sample.encode_ms.has_value() &&
                                       network_observed;
-  if (elevated_count == 1 && !complete_host_pipeline) {
+  if (elevated_count == 1 && !complete_host_pipeline && !host_pipeline) {
     result.explanation = "A single elevated stage cannot be isolated because host pipeline measurements are incomplete.";
     return result;
   }
@@ -126,6 +132,7 @@ pipeline_assessment assess_pipeline(
   if (capture) result.evidence.emplace_back("Capture latency crossed its configured threshold.");
   if (encode) result.evidence.emplace_back("Encode latency crossed its configured threshold.");
   if (network) result.evidence.emplace_back("Send or network telemetry crossed its configured threshold.");
+  if (host_pipeline) result.evidence.emplace_back("Combined capture-to-broadcast host pipeline time crossed its configured threshold; this does not isolate a specific stage.");
   if (client) result.evidence.emplace_back("Client decode or presentation telemetry crossed its configured threshold.");
 
   if (elevated_count > 1) {
@@ -144,6 +151,10 @@ pipeline_assessment assess_pipeline(
     result.classification = bottleneck::network_bound;
     result.certainty = confidence::medium;
     result.explanation = "Send or network telemetry indicates congestion.";
+  } else if (host_pipeline) {
+    result.classification = bottleneck::host_pipeline_pressure;
+    result.certainty = confidence::low;
+    result.explanation = "Combined host-side frame processing time is elevated; capture, conversion, encoding, and queueing cannot be distinguished from this measurement.";
   } else if (client) {
     result.classification = bottleneck::client_bound;
     result.certainty = confidence::medium;
