@@ -20,6 +20,7 @@ Legend: [x] automated implementation/evidence exists; [~] partially complete or 
 - [x] Supervise owned processes and readiness.
 - [x] Detect private document-portal mount through mountinfo.
 - [x] Try normal and lazy FUSE unmount.
+- [x] Test missing unmount utility, persistent mount failure, and mountinfo escaped paths.
 - [~] Verify partial-startup and interrupted-shutdown cleanup on Fedora host.
 
 ## Audio
