@@ -87,6 +87,38 @@ def wait_for(predicate, children, description, timeout=30):
     raise RuntimeError(f'Timed out waiting for {description}')
 
 
+def cleanup_private_document_portal(runtime):
+    """Unmount only the document-portal FUSE mount owned by this private session."""
+    mountpoint = Path(runtime) / 'doc'
+    try:
+        mounted = mountpoint.is_mount()
+    except OSError:
+        mounted = True
+    if not mounted:
+        return
+    unmount_tools = [tool for tool in (shutil.which('fusermount3'), shutil.which('fusermount'))
+                     if tool]
+    if not unmount_tools:
+        raise RuntimeError(f'Cannot clean up private document portal mount at {mountpoint}: '
+                           'fusermount3/fusermount is unavailable')
+    for tool in unmount_tools:
+        for option in ('-u', '-uz'):
+            try:
+                subprocess.run([tool, option, str(mountpoint)], check=False,
+                               timeout=10, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL)
+            except subprocess.TimeoutExpired:
+                pass
+            try:
+                if not mountpoint.is_mount():
+                    print('Syzygy: private document portal mount cleaned up',
+                          file=sys.stderr, flush=True)
+                    return
+            except OSError:
+                pass
+    raise RuntimeError(f'Could not unmount private document portal at {mountpoint}')
+
+
 def force_tablet_mode(env):
     """Force Plasma/KWin tablet mode in this disposable private session."""
     if env.get('SYZYGY_HEADLESS_TOUCH') != '1':
@@ -284,6 +316,7 @@ def main():
             except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait()
+            cleanup_private_document_portal(runtime)
 
 
 if __name__ == '__main__':
