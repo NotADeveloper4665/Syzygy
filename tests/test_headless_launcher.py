@@ -157,6 +157,30 @@ class LauncherTests(unittest.TestCase):
         child.terminate.assert_called_once()
         child.wait.assert_called_once()
 
+    def test_cleanup_unmounts_private_document_portal(self):
+        with patch.object(headless.Path, 'is_mount', side_effect=[True, False]), \\
+             patch.object(headless.shutil, 'which', side_effect=['/usr/bin/fusermount3', None]), \\
+             patch.object(headless.subprocess, 'run') as run:
+            headless.cleanup_private_document_portal(Path('/tmp/private-runtime'))
+        run.assert_called_once_with(['/usr/bin/fusermount3', '-u', '/tmp/private-runtime/doc'],
+                                    check=False, timeout=10, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL)
+
+    def test_cleanup_falls_back_to_lazy_unmount_for_stale_portal(self):
+        with patch.object(headless.Path, 'is_mount', side_effect=[True, True, False]), \\
+             patch.object(headless.shutil, 'which', side_effect=['/usr/bin/fusermount3', None]), \\
+             patch.object(headless.subprocess, 'run') as run:
+            headless.cleanup_private_document_portal(Path('/tmp/private-runtime'))
+        self.assertEqual([call.args[0][1] for call in run.call_args_list], ['-u', '-uz'])
+
+    def test_cleanup_skips_absent_document_portal_mount(self):
+        with patch.object(headless.Path, 'is_mount', return_value=False), \\
+             patch.object(headless.shutil, 'which') as which, \\
+             patch.object(headless.subprocess, 'run') as run:
+            headless.cleanup_private_document_portal(Path('/tmp/private-runtime'))
+        which.assert_not_called()
+        run.assert_not_called()
+
     def test_dependency_failure_precedes_session_creation(self):
         with patch.object(headless.os, 'geteuid', return_value=1000), \
              patch.object(headless.shutil, 'which', return_value=None), \
