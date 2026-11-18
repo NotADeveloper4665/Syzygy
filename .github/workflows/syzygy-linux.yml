@@ -96,13 +96,25 @@ jobs:
               fi
               # Package udev rules can reset the virtual device permissions.
               chmod 0666 "$SYZYGY_CI_VGEM_CARD"
-              # The container's render node can be owned by systemd-coredump
-              # rather than the render group. CI only: let the unprivileged
-              # KWin test user open the software-rendering device.
-              for render_node in /dev/dri/renderD*; do
-                [ -e "$render_node" ] || continue
-                chmod 0666 "$render_node"
+              # Pass the host render-node group through to the unprivileged
+              # test account. Device nodes are bind-mounted from the runner;
+              # chmod from inside the container is not permitted.
+              render_node=""
+              for candidate in /dev/dri/renderD*; do
+                [ -e "$candidate" ] || continue
+                render_node="$candidate"
+                break
               done
+              if [ -n "$render_node" ]; then
+                render_gid="$(stat -c "%g" "$render_node")"
+                render_group="$(getent group "$render_gid" | cut -d: -f1 || true)"
+                if [ -z "$render_group" ]; then
+                  groupadd --gid "$render_gid" syzygy-render
+                  render_group=syzygy-render
+                fi
+                usermod -aG "$render_group" syzygy-ci
+                runuser -u syzygy-ci -- test -r "$render_node"
+              fi
               install -d -m 1777 /tmp/.X11-unix
               ls -l /dev/dri
               mkdir -p /tmp/headless-protocols
