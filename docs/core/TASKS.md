@@ -9,7 +9,8 @@
 - [x] Implement deterministic bottleneck classifier.
 - [x] Add tests for missing, stale, invalid, mixed, and healthy samples.
 - [x] Add Core source files to the shared server/test CMake source list.
-- [ ] Run focused tests and full Linux build.
+- [x] Add a standalone Core telemetry smoke test to the Linux CI workflow.
+- [ ] Run focused GoogleTest tests and full Linux build.
 - [ ] Confirm CI for the runtime adapter commits.
 - [ ] Confirm CI on the feature branch.
 - [ ] Review docs against implementation.
