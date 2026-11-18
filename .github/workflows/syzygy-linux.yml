@@ -75,6 +75,10 @@ jobs:
           ./tailscale-pairing-smoke
           g++ -std=c++17 -Wall -Wextra -Werror -Isrc tests/test_pipewire_memory.cpp -o pipewire-memory-smoke
           ./pipewire-memory-smoke
+      - name: Test Syzygy Core telemetry model
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -I. tests/core_telemetry_smoke.cpp src/syzygy/core/telemetry.cpp -o /tmp/syzygy-core-telemetry-smoke
+          /tmp/syzygy-core-telemetry-smoke
       - name: Build RPM package
         env:
           RELEASE_VERSION: '0.0.9'
