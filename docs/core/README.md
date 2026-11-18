@@ -19,6 +19,7 @@ The initial implementation is a pure, deterministic C++ model. Runtime instrumen
 
 - Telemetry value model and validation: implementation started.
 - Pipeline classification: implementation started.
-- Runtime telemetry adapters: not started.
+- Combined host-pipeline timing: wired per session from the existing frame-processing timestamp; does not isolate capture or encode.
+- Other host/client telemetry adapters: not started.
 - UI/diagnostic presentation: not started.
 - Automatic tuning: out of scope for milestone 0.
