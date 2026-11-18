@@ -23,3 +23,8 @@ The initial implementation is a pure, deterministic C++ model. Runtime instrumen
 - Other host/client telemetry adapters: not started.
 - UI/diagnostic presentation: not started.
 - Automatic tuning: out of scope for milestone 0.
+
+
+## Telemetry provenance
+
+- [Telemetry source registry](TELEMETRY-SOURCES.md) documents connected and unavailable metrics, their units, timing boundaries, and interpretation limits.
