@@ -30,6 +30,7 @@ extern "C" {
 #include "platform/common.h"
 #include "process.h"
 #include "stream.h"
+#include <src/syzygy/core/telemetry.h>
 #include "syzygy/wan_pacing.h"
 #include "sync.h"
 #include "system_tray.h"
@@ -350,6 +351,10 @@ namespace stream {
 
   struct session_t {
     config_t config;
+
+    // Owned by this session; populated by the shared video broadcaster for
+    // diagnostics. No control action consumes it in observe-only milestone 1.
+    syzygy::core::telemetry_sample core_telemetry;
 
     safe::mail_t mail;
 
@@ -1386,15 +1391,20 @@ namespace stream {
       }
 
       if (packet->frame_timestamp) {
+        const auto pipeline_observed_at = std::chrono::steady_clock::now();
         auto duration_to_latency = [](const std::chrono::steady_clock::duration &duration) {
           const auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
           return (uint16_t) std::clamp<decltype(duration_us)>((duration_us + 50) / 100, 0, std::numeric_limits<uint16_t>::max());
         };
 
-        uint16_t latency = duration_to_latency(std::chrono::steady_clock::now() - *packet->frame_timestamp);
+        uint16_t latency = duration_to_latency(pipeline_observed_at - *packet->frame_timestamp);
+        session->core_telemetry.observed_at = pipeline_observed_at;
+        session->core_telemetry.host_pipeline_ms = latency / 10.0;
         frame_header.frame_processing_latency = latency;
         frame_processing_latency_logger.collect_and_log(latency / 10.);
       } else {
+        session->core_telemetry.observed_at = std::chrono::steady_clock::now();
+        session->core_telemetry.host_pipeline_ms.reset();
         frame_header.frame_processing_latency = 0;
       }
 
