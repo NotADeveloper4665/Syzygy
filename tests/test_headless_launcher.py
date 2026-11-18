@@ -44,6 +44,7 @@ class LauncherTests(unittest.TestCase):
             self.assertNotIn('--systemd', events[0][0])
             self.assertEqual(events[1][0], ['plasmashell'])
             self.assertEqual(events[2][0][0], '/usr/bin/syzygy')
+            self.assertIn('audio_sink=syzygy_headless', events[2][0])
             self.assertEqual(events[2][1]['WAYLAND_DISPLAY'], 'wayland-syzygy')
             self.assertEqual(events[2][1]['XDG_RUNTIME_DIR'], directory)
 
