@@ -99,7 +99,7 @@ Hardware encoding requires working vendor drivers;
 than attaching to another logged-in user’s desktop. Changing its display size during
 a stream and native pen routing are not implemented yet. Native touch events can be sent by compatible clients. In `--headless-touch`, touch events are routed through KWin's private fake-input Wayland interface instead of host-wide uinput devices; this keeps touch on the Syzygy virtual desktop. The private KWin protocol does not expose pen pressure/tool semantics yet, so pen events are rejected in headless mode rather than leaking into the physical desktop. The mode also forces KWin's `Input/TabletMode=on` setting in the disposable private KDE configuration. Gamepads require the
 normal uinput permissions. Automatic headless dependency installation currently
-supports Fedora; other distributions need the listed runtime programs installed.
+supports Fedora; other distributions need the listed runtime programs installed, including `fusermount3` (or `fusermount`) for private document-portal cleanup.
 
 GitHub CI builds the RPM and runs a real displayless KWin-to-PipeWire frame test
 with a virtual vgem DRM device and Mesa software rendering. Hardware-specific NVIDIA/Intel/AMD validation remains
