@@ -4,11 +4,11 @@
 
 - [x] Establish Core product boundary and feature specification.
 - [x] Record current telemetry-source limitations and safety rules.
-- [ ] Implement platform-neutral telemetry value model.
-- [ ] Validate units, ranges, finite values, and monotonic timestamps.
-- [ ] Implement deterministic bottleneck classifier.
-- [ ] Add tests for missing, stale, invalid, mixed, and healthy samples.
-- [ ] Add Core source files to the shared server/test CMake source list.
+- [x] Implement platform-neutral telemetry value model.
+- [x] Validate units, ranges, finite values, and monotonic timestamps.
+- [x] Implement deterministic bottleneck classifier.
+- [x] Add tests for missing, stale, invalid, mixed, and healthy samples.
+- [x] Add Core source files to the shared server/test CMake source list.
 - [ ] Run focused tests and full Linux build.
 - [ ] Confirm CI on the feature branch.
 - [ ] Review docs against implementation.
