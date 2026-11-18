@@ -1,7 +1,7 @@
 # Syzygy Core — Design
 
 Status: Draft  
-Applies to: Core milestone 0 / Adaptive Pipeline Director
+Applies to: Core milestones 0–1 / Adaptive Pipeline Director
 
 ## 1. Boundaries
 
@@ -15,6 +15,7 @@ The existing streaming engine remains responsible for frames, encoding, packetiz
                     |
                     v
            TelemetrySample (session scoped)
+           ^ session_t owns the latest host sample
                     |
              validation + freshness
                     |
@@ -30,6 +31,7 @@ The first implementation is a pure value model and deterministic evaluator. No b
 ## 3. Core data types
 
 - telemetry_sample: optional measurements and monotonic observation time.
+- host_pipeline_ms: aggregate captured-frame-to-broadcaster time; not a capture or encode stage metric.
 - telemetry_policy: freshness window and explicit stage thresholds.
 - bottleneck: healthy, capture-bound, encode-bound, network-bound, client-bound, mixed, insufficient-data.
 - pipeline_assessment: classification, confidence, explanation, and stage evidence.
@@ -47,11 +49,13 @@ All numeric measurements use explicit units and are validated before classificat
 7. Return healthy only when the minimum required evidence is present and no stage is elevated.
 8. Otherwise return insufficient-data.
 
+The first runtime adapter stores the existing frame-processing timing on its owning session. It is an aggregate host-pipeline signal only; the classifier emits `host_pipeline_pressure` with low confidence rather than guessing which internal stage is responsible.
+
 Client-bound is reserved until client decode/presentation measurements exist. It is not inferred from server send completion.
 
 ## 5. Threading and ownership
 
-Milestone 0 has no shared mutable state. Samples and assessments are values. Any future per-session store must be owned by the session lifecycle and must not share controller state between clients.
+The value model has no shared mutable state. The first runtime sample is stored directly on its owning `session_t`; no global registry or cross-session aggregation is used. A future reader must define synchronization before consuming that sample concurrently.
 
 ## 6. Failure behavior
 
