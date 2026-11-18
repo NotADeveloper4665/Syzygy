@@ -10,16 +10,18 @@
 - [x] Add tests for missing, stale, invalid, mixed, and healthy samples.
 - [x] Add Core source files to the shared server/test CMake source list.
 - [ ] Run focused tests and full Linux build.
+- [ ] Confirm CI for the runtime adapter commits.
 - [ ] Confirm CI on the feature branch.
 - [ ] Review docs against implementation.
 
 ## Milestone 1: verified host adapters
 
-- [ ] Map existing frame timestamps and processing-latency instrumentation to normalized telemetry.
-- [ ] Add per-session capture/encode/send queue measurements only where timing boundaries are verified.
+- [x] Map existing frame timestamps and broadcaster processing-latency instrumentation to a per-session combined host-pipeline measurement.
+- [ ] Add per-session capture/encode/send queue measurements only where timing boundaries are independently verified.
 - [ ] Parse existing client feedback without treating loss counts as a loss rate.
-- [ ] Document source, units, sampling interval, and freshness for each adapter.
-- [ ] Add adapter-level tests.
+- [x] Document source, units, timing boundary, and freshness for the combined host-pipeline adapter.
+- [ ] Document sampling interval and source for each future adapter.
+- [ ] Add adapter-level tests, including session-isolation and missing-timestamp behavior.
 
 ## Milestone 2: observe-only diagnostics
 
