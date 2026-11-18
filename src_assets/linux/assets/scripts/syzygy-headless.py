@@ -87,14 +87,29 @@ def wait_for(predicate, children, description, timeout=30):
     raise RuntimeError(f'Timed out waiting for {description}')
 
 
+def is_mountpoint(path):
+    """Check mountinfo without stat() on a possibly disconnected FUSE mount."""
+    target = os.path.normpath(os.path.abspath(os.fspath(path)))
+    try:
+        with open('/proc/self/mountinfo', encoding='utf-8') as mountinfo:
+            for line in mountinfo:
+                fields = line.split()
+                if len(fields) > 4:
+                    mounted_path = re.sub(
+                        r'\\\\([0-7]{3})',
+                        lambda match: chr(int(match.group(1), 8)),
+                        fields[4])
+                    if mounted_path == target:
+                        return True
+    except OSError:
+        return False
+    return False
+
+
 def cleanup_private_document_portal(runtime):
     """Unmount only the document-portal FUSE mount owned by this private session."""
     mountpoint = Path(runtime) / 'doc'
-    try:
-        mounted = mountpoint.is_mount()
-    except OSError:
-        mounted = True
-    if not mounted:
+    if not is_mountpoint(mountpoint):
         return
     unmount_tools = [tool for tool in (shutil.which('fusermount3'), shutil.which('fusermount'))
                      if tool]
@@ -109,13 +124,10 @@ def cleanup_private_document_portal(runtime):
                                stderr=subprocess.DEVNULL)
             except subprocess.TimeoutExpired:
                 pass
-            try:
-                if not mountpoint.is_mount():
-                    print('Syzygy: private document portal mount cleaned up',
-                          file=sys.stderr, flush=True)
-                    return
-            except OSError:
-                pass
+            if not is_mountpoint(mountpoint):
+                print('Syzygy: private document portal mount cleaned up',
+                      file=sys.stderr, flush=True)
+                return
     raise RuntimeError(f'Could not unmount private document portal at {mountpoint}')
 
 
