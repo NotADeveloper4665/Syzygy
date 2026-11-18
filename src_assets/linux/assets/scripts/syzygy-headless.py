@@ -16,7 +16,7 @@ import time
 
 DEPENDENCIES = ('dbus-run-session', 'kwin_wayland', 'plasmashell', 'Xwayland',
                 'pipewire', 'wireplumber', 'pipewire-pulse', 'pactl', 'kbuildsycoca6',
-                'dbus-update-activation-environment')
+                'dbus-update-activation-environment', 'fusermount3')
 
 
 def size(value):
@@ -305,7 +305,7 @@ def main():
     if missing:
         raise RuntimeError('Missing headless programs: ' + ', '.join(missing) +
             '. Fedora: sudo dnf install kwin-wayland plasma-workspace xorg-x11-server-Xwayland '
-            'pipewire pipewire-pulseaudio wireplumber pulseaudio-utils dbus-daemon dbus-tools python3')
+            'pipewire pipewire-pulseaudio wireplumber pulseaudio-utils dbus-daemon dbus-tools fuse3 python3')
     with tempfile.TemporaryDirectory(prefix=f'syzygy-headless-{os.getuid()}-') as directory:
         runtime = Path(directory)
         runtime.chmod(0o700)
