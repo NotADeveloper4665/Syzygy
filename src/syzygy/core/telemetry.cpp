@@ -107,6 +107,22 @@ pipeline_assessment assess_pipeline(
     return result;
   }
 
+  const bool complete_host_pipeline = sample.capture_ms.has_value() &&
+                                      sample.encode_ms.has_value() &&
+                                      network_observed;
+  if (elevated_count == 1 && !complete_host_pipeline) {
+    result.explanation = "A single elevated stage cannot be isolated because host pipeline measurements are incomplete.";
+    return result;
+  }
+  if (elevated_count == 0 && !complete_host_pipeline) {
+    result.explanation = "Healthy status requires fresh capture, encode, and network measurements.";
+    return result;
+  }
+  if (client && !client_observed) {
+    result.explanation = "Client classification requires explicit client telemetry.";
+    return result;
+  }
+
   if (capture) result.evidence.emplace_back("Capture latency crossed its configured threshold.");
   if (encode) result.evidence.emplace_back("Encode latency crossed its configured threshold.");
   if (network) result.evidence.emplace_back("Send or network telemetry crossed its configured threshold.");
