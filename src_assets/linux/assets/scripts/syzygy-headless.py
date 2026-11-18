@@ -96,7 +96,7 @@ def is_mountpoint(path):
                 fields = line.split()
                 if len(fields) > 4:
                     mounted_path = re.sub(
-                        r'\\\\([0-7]{3})',
+                        r'\\([0-7]{3})',
                         lambda match: chr(int(match.group(1), 8)),
                         fields[4])
                     if mounted_path == target:
