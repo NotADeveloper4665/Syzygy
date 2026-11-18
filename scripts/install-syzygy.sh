@@ -103,11 +103,11 @@ fi
 
 package_manager="$(detect_package_manager)"
 if [[ "${SYZYGY_INSTALL_HEADLESS:-0}" == 1 && "$package_manager" != dnf ]]; then
-  printf 'Automatic headless dependency installation currently supports Fedora/dnf. Install KWin, Plasma, Xwayland, PipeWire, WirePlumber, pactl and dbus-run-session on this distribution first.\n' >&2
+  printf 'Automatic headless dependency installation currently supports Fedora/dnf. Install KWin, Plasma, Xwayland, PipeWire, WirePlumber, pactl, fusermount3 and dbus-run-session on this distribution first.\n' >&2
   exit 1
 fi
 if [[ "${SYZYGY_INSTALL_HEADLESS:-0}" == 1 ]]; then
-  as_root dnf install -y kwin-wayland plasma-workspace xorg-x11-server-Xwayland pipewire pipewire-pulseaudio wireplumber pulseaudio-utils dbus-daemon dbus-tools python3 mesa-dri-drivers
+  as_root dnf install -y kwin-wayland plasma-workspace xorg-x11-server-Xwayland pipewire pipewire-pulseaudio wireplumber pulseaudio-utils dbus-daemon dbus-tools fuse3 python3 mesa-dri-drivers
   as_root install -d -m 1777 /tmp/.X11-unix
   # SSH users do not receive the graphical-login ACL on GPU render nodes.
   if ((EUID != 0)) && getent group render >/dev/null && [[ " $(id -nG) " != *" render "* ]]; then

@@ -57,6 +57,11 @@ int main() {
     require(automatic_vaapi.start && automatic_vaapi.automatic && automatic_vaapi.encoder_override
       && automatic_vaapi.arguments == std::vector<std::string>({"syzygy", "encoder=vaapi"}),
       "automatic capture selection can be combined with a forced VA-API encoder");
+    const auto headless_touch = parse({"syzygy", "-s", "-auto", "--headless-touch", "-psk"});
+    require(headless_touch.headless && headless_touch.headless_touch && headless_touch.capture_override && headless_touch.start && headless_touch.print_key,
+      "headless touch startup preserves the automatic encoder and key shortcuts");
+    require(headless_touch.arguments == std::vector<std::string>({"syzygy", "capture=kwin", "portal_virtual_display=disabled"}),
+      "headless touch uses the private native KWin backend");
     const auto headless = parse({"syzygy", "-s", "-auto", "-headless", "-psk"});
     require(headless.headless && headless.capture_override && headless.start && headless.print_key,
       "headless startup preserves the automatic encoder and key shortcuts");

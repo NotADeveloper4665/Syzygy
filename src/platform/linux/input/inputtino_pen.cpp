@@ -9,6 +9,9 @@
 
 // local includes
 #include "inputtino_common.h"
+#ifdef SUNSHINE_BUILD_WAYLAND
+#include "../kwin_headless.h"
+#endif
 #include "inputtino_pen.h"
 #include "src/config.h"
 #include "src/logging.h"
@@ -19,6 +22,17 @@ using namespace std::literals;
 
 namespace platf::pen {
   void update(client_input_raw_t *raw, const touch_port_t &touch_port, const pen_input_t &pen) {
+#ifdef SUNSHINE_BUILD_WAYLAND
+    // KWin's fake-input protocol has no pen/pressure tool model. Do not let the
+    // fallback uinput tablet inject into the host's physical desktop.
+    if (syzygy::headless::active()) {
+      static std::atomic_flag warned = ATOMIC_FLAG_INIT;
+      if (!warned.test_and_set(std::memory_order_relaxed)) {
+        BOOST_LOG(warning) << "Headless pen input is disabled: private KWin pen routing is not implemented";
+      }
+      return;
+    }
+#endif
     if (raw->pen) {
       // First set the buttons
       (*raw->pen).set_btn(inputtino::PenTablet::PRIMARY, pen.penButtons & LI_PEN_BUTTON_PRIMARY);

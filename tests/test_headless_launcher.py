@@ -1,10 +1,11 @@
 import importlib.util
 import os
 import subprocess
+import socket
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, mock_open, patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'src_assets/linux/assets/scripts/syzygy-headless.py'
 spec = importlib.util.spec_from_file_location('headless', SCRIPT)
@@ -16,26 +17,72 @@ class LauncherTests(unittest.TestCase):
     def test_display_environment_reaches_dbus_before_desktop_starts(self):
         with tempfile.TemporaryDirectory() as directory:
             events = []
-            env = {'XDG_RUNTIME_DIR': directory, 'WAYLAND_DISPLAY': 'wayland-syzygy'}
-            child = MagicMock()
-            child.wait.return_value = 0
-            def run(command, **kwargs):
-                events.append(command)
-                self.assertEqual(kwargs['env'], env)
-            def start(command, **kwargs):
-                events.append(command)
-                return child
+            display_socket = Path(directory) / 'wayland-syzygy'
+            with socket.socket(socket.AF_UNIX) as listener:
+                listener.bind(str(display_socket))
+                env = {'XDG_RUNTIME_DIR': directory,
+                       'SYZYGY_HEADLESS_RUNTIME_DIR': directory,
+                       'SYZYGY_HEADLESS_WAYLAND_DISPLAY': 'wayland-syzygy',
+                       'WAYLAND_DISPLAY': 'wayland-syzygy',
+                       'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/tmp/private-dbus',
+                       'PULSE_SINK': 'syzygy_headless'}
+                child = MagicMock()
+                child.wait.return_value = 0
+                def run(command, **kwargs):
+                    events.append((command, kwargs['env']))
+                def start(command, **kwargs):
+                    events.append((command, kwargs['env']))
+                    return child
+                with patch.dict(headless.os.environ, env, clear=True), \
+                     patch.object(headless.subprocess, 'run', side_effect=run), \
+                     patch.object(headless.subprocess, 'Popen', side_effect=start):
+                    self.assertEqual(headless.desktop(Path('/usr/bin/syzygy'), ['-s']), 0)
+            self.assertEqual(events[0][0][0], 'dbus-update-activation-environment')
+            self.assertIn('WAYLAND_DISPLAY', events[0][0])
+            self.assertIn('PULSE_SINK', events[0][0])
+            self.assertEqual(events[0][1]['PULSE_SINK'], 'syzygy_headless')
+            self.assertNotIn('--systemd', events[0][0])
+            self.assertEqual(events[1][0], ['plasmashell'])
+            self.assertEqual(events[2][0][0], '/usr/bin/syzygy')
+            self.assertIn('audio_sink=syzygy_headless', events[2][0])
+            self.assertEqual(events[2][1]['WAYLAND_DISPLAY'], 'wayland-syzygy')
+            self.assertEqual(events[2][1]['XDG_RUNTIME_DIR'], directory)
+
+    def test_desktop_refuses_native_or_unverified_wayland_display(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = {'XDG_RUNTIME_DIR': directory,
+                   'SYZYGY_HEADLESS_RUNTIME_DIR': directory,
+                   'SYZYGY_HEADLESS_WAYLAND_DISPLAY': 'wayland-syzygy',
+                   'WAYLAND_DISPLAY': 'wayland-0',
+                   'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/tmp/private-dbus'}
             with patch.dict(headless.os.environ, env, clear=True), \
-                 patch.object(headless.subprocess, 'run', side_effect=run), \
-                 patch.object(headless.subprocess, 'Popen', side_effect=start):
-                self.assertEqual(headless.desktop(Path('/usr/bin/syzygy'), ['-s']), 0)
-            self.assertEqual(events[0][0], 'dbus-update-activation-environment')
-            self.assertIn('WAYLAND_DISPLAY', events[0])
-            self.assertNotIn('--systemd', events[0])
-            self.assertEqual(events[1], ['plasmashell'])
+                 patch.object(headless.subprocess, 'run') as run, \
+                 patch.object(headless.subprocess, 'Popen') as popen:
+                with self.assertRaisesRegex(RuntimeError, 'non-private Wayland display'):
+                    headless.desktop(Path('/usr/bin/syzygy'), [])
+                run.assert_not_called()
+                popen.assert_not_called()
+
+    def test_absolute_wayland_socket_is_accepted_only_inside_private_runtime(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as outside:
+            private_socket = Path(directory) / 'wayland-syzygy'
+            outside_socket = Path(outside) / 'wayland-syzygy'
+            with socket.socket(socket.AF_UNIX) as listener:
+                listener.bind(str(private_socket))
+                env = {'XDG_RUNTIME_DIR': directory,
+                       'SYZYGY_HEADLESS_RUNTIME_DIR': directory,
+                       'SYZYGY_HEADLESS_WAYLAND_DISPLAY': 'wayland-syzygy',
+                       'WAYLAND_DISPLAY': str(private_socket),
+                       'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/tmp/private-dbus'}
+                result = headless.private_display_environment(env)
+                self.assertEqual(result['WAYLAND_DISPLAY'], str(private_socket))
+                env['WAYLAND_DISPLAY'] = str(outside_socket)
+                with self.assertRaisesRegex(RuntimeError, 'expected socket inside the private runtime'):
+                    headless.private_display_environment(env)
 
     def test_activation_failure_does_not_start_an_unusable_desktop(self):
-        with patch.object(headless.subprocess, 'run',
+        with patch.object(headless, 'private_display_environment', return_value={'XDG_RUNTIME_DIR': '/tmp/private'}), \
+             patch.object(headless.subprocess, 'run',
                           side_effect=subprocess.CalledProcessError(1, 'dbus-update-activation-environment')), \
              patch.object(headless.subprocess, 'Popen') as popen:
             with self.assertRaises(subprocess.CalledProcessError):
@@ -45,7 +92,7 @@ class LauncherTests(unittest.TestCase):
     def test_physical_desktop_and_audio_are_not_inherited(self):
         source = {'DISPLAY': ':0', 'WAYLAND_DISPLAY': 'wayland-0',
                   'DBUS_SESSION_BUS_ADDRESS': 'physical', 'PULSE_SERVER': 'physical',
-                  'PIPEWIRE_REMOTE': 'physical', 'HOME': '/home/test'}
+                  'PIPEWIRE_REMOTE': 'physical', 'HOME': '/home/test', 'SYZYGY_HEADLESS_TOUCH': '1'}
         env = headless.private_environment(source, Path('/tmp/private'), Path('/usr/bin/syzygy'))
         for key in ('DISPLAY', 'WAYLAND_DISPLAY', 'DBUS_SESSION_BUS_ADDRESS', 'PULSE_SERVER', 'PIPEWIRE_REMOTE'):
             self.assertNotIn(key, env)
@@ -55,6 +102,31 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(env['KWIN_COMPOSE'], 'O2')
         self.assertEqual(env['XDG_CONFIG_HOME'], '/tmp/private/config')
         self.assertEqual(env['CONFIGURATION_DIRECTORY'], '/home/test/.config')
+        self.assertEqual(env['SYZYGY_HEADLESS_TOUCH'], '1')
+
+    def test_touch_mode_forces_tablet_mode_only_in_private_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / 'config'
+            env = {'XDG_CONFIG_HOME': str(config), 'SYZYGY_HEADLESS_TOUCH': '1'}
+            headless.force_tablet_mode(env)
+            self.assertIn('[Input]\nTabletMode=on\n', (config / 'kwinrc').read_text())
+
+    def test_touch_mode_preserves_other_kwin_settings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / 'config'
+            config.mkdir()
+            (config / 'kwinrc').write_text('[General]\nFoo=bar\n[Input]\nTabletMode=auto\nTouchpad=enabled\n')
+            headless.force_tablet_mode({'XDG_CONFIG_HOME': str(config), 'SYZYGY_HEADLESS_TOUCH': '1'})
+            result = (config / 'kwinrc').read_text()
+            self.assertIn('Foo=bar', result)
+            self.assertIn('TabletMode=on', result)
+            self.assertIn('Touchpad=enabled', result)
+
+    def test_standard_headless_mode_does_not_force_tablet_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / 'config'
+            headless.force_tablet_mode({'XDG_CONFIG_HOME': str(config), 'SYZYGY_HEADLESS_TOUCH': '0'})
+            self.assertFalse(config.exists())
 
     def test_persistent_host_configuration_precedence(self):
         for source, expected in (({'HOME': '/home/test', 'XDG_CONFIG_HOME': '/persist'}, '/persist'),
@@ -63,6 +135,36 @@ class LauncherTests(unittest.TestCase):
             self.assertEqual(env['CONFIGURATION_DIRECTORY'], expected)
             self.assertEqual(env['SUNSHINE_MIGRATE_CONFIG'], '0')
 
+    def test_headless_audio_is_verified_and_pinned_to_syzygy(self):
+        calls = []
+        def run(command, **kwargs):
+            calls.append(command)
+            result = MagicMock()
+            joined = ' '.join(command)
+            result.stdout = ('0\tsyzygy_headless\tmodule-null-sink.c\tfloat32le 2ch 48000Hz\tIDLE\n'
+                             if joined == 'pactl list short sinks'
+                             else '42\tsyzygy_headless.monitor\tPipeWire\tfloat32le 2ch 48000Hz\tSUSPENDED\n'
+                             if joined == 'pactl list short sources' else '')
+            return result
+        env = {}
+        with patch.object(headless.subprocess, 'run', side_effect=run):
+            headless.configure_headless_audio(env)
+        self.assertEqual(env['PULSE_SINK'], 'syzygy_headless')
+        self.assertIn(['pactl', 'list', 'short', 'sinks'], calls)
+        self.assertIn(['pactl', 'list', 'short', 'sources'], calls)
+
+    def test_headless_audio_fails_if_syzygy_monitor_is_missing(self):
+        def run(command, **kwargs):
+            result = MagicMock()
+            joined = ' '.join(command)
+            result.stdout = ('0\tsyzygy_headless\tmodule-null-sink.c\tfloat32le 2ch 48000Hz\tIDLE\n'
+                             if joined == 'pactl list short sinks'
+                             else '99\tunrelated.monitor\tPipeWire\tfloat32le 2ch 48000Hz\tSUSPENDED\n'
+                             if joined == 'pactl list short sources' else '')
+            return result
+        with patch.object(headless.subprocess, 'run', side_effect=run):
+            with self.assertRaisesRegex(RuntimeError, 'monitor source was not created'):
+                headless.configure_headless_audio({})
     def test_size_validation(self):
         self.assertEqual(headless.size('1920x1080'), (1920, 1080))
         for value in ('0x0', '9999x1080', '1920x1080;id', '1920x-1'):
@@ -88,6 +190,53 @@ class LauncherTests(unittest.TestCase):
             children.close()
         child.terminate.assert_called_once()
         child.wait.assert_called_once()
+
+    def test_cleanup_unmounts_private_document_portal(self):
+        with patch.object(headless, 'is_mountpoint', side_effect=[True, False]), \
+             patch.object(headless.shutil, 'which', side_effect=['/usr/bin/fusermount3', None]), \
+             patch.object(headless.subprocess, 'run') as run:
+            headless.cleanup_private_document_portal(Path('/tmp/private-runtime'))
+        run.assert_called_once_with(['/usr/bin/fusermount3', '-u', '/tmp/private-runtime/doc'],
+                                    check=False, timeout=10, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL)
+
+    def test_cleanup_falls_back_to_lazy_unmount_for_stale_portal(self):
+        with patch.object(headless, 'is_mountpoint', side_effect=[True, True, False]), \
+             patch.object(headless.shutil, 'which', side_effect=['/usr/bin/fusermount3', None]), \
+             patch.object(headless.subprocess, 'run') as run:
+            headless.cleanup_private_document_portal(Path('/tmp/private-runtime'))
+        self.assertEqual([call.args[0][1] for call in run.call_args_list], ['-u', '-uz'])
+
+    def test_cleanup_skips_absent_document_portal_mount(self):
+        with patch.object(headless, 'is_mountpoint', return_value=False), \
+             patch.object(headless.shutil, 'which') as which, \
+             patch.object(headless.subprocess, 'run') as run:
+            headless.cleanup_private_document_portal(Path('/tmp/private-runtime'))
+        which.assert_not_called()
+        run.assert_not_called()
+
+    def test_cleanup_fails_clearly_when_unmount_tool_is_missing(self):
+        with patch.object(headless, 'is_mountpoint', return_value=True), \
+             patch.object(headless.shutil, 'which', return_value=None), \
+             patch.object(headless.subprocess, 'run') as run:
+            with self.assertRaisesRegex(RuntimeError, 'fusermount3/fusermount is unavailable'):
+                headless.cleanup_private_document_portal(Path('/tmp/private-runtime'))
+            run.assert_not_called()
+
+    def test_cleanup_reports_mount_that_survives_both_unmount_attempts(self):
+        with patch.object(headless, 'is_mountpoint', return_value=True), \
+             patch.object(headless.shutil, 'which', side_effect=['/usr/bin/fusermount3', None]), \
+             patch.object(headless.subprocess, 'run') as run:
+            with self.assertRaisesRegex(RuntimeError, 'Could not unmount private document portal'):
+                headless.cleanup_private_document_portal(Path('/tmp/private-runtime'))
+        self.assertEqual([call.args[0][1] for call in run.call_args_list], ['-u', '-uz'])
+
+    def test_mountpoint_parser_decodes_mountinfo_escaped_spaces(self):
+        with tempfile.TemporaryDirectory(prefix='syzygy mount ') as directory:
+            escaped = directory.replace(' ', r'\040')
+            mountinfo = f'36 25 0:32 / {escaped} rw,nosuid - fuse.portal portal rw\n'
+            with patch('builtins.open', mock_open(read_data=mountinfo)):
+                self.assertTrue(headless.is_mountpoint(directory))
 
     def test_dependency_failure_precedes_session_creation(self):
         with patch.object(headless.os, 'geteuid', return_value=1000), \

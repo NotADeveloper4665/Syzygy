@@ -32,6 +32,9 @@ namespace syzygy {
         h264 = true;
       } else if (arg == "-headless") {
         options.headless = true;
+      } else if (arg == "--headless-touch") {
+        options.headless_touch = true;
+        options.headless = true;
       } else if (arg == "-virtual") {
         options.virtual_display = true;
       } else if (arg == "-auto") {
@@ -45,7 +48,7 @@ namespace syzygy {
         options.encoder_override = true;
       } else if (arg.substr(0, 2) == "--") {
         // Apollo commands consume the rest of argv verbatim (including passwords).
-        if (options.print_key || options.start || h264 || options.automatic || options.virtual_display || options.headless || options.tails || !encoder.empty()) {
+        if (options.print_key || options.start || h264 || options.automatic || options.virtual_display || options.headless || options.headless_touch || options.tails || !encoder.empty()) {
           throw std::invalid_argument("Use Syzygy shortcuts separately from --commands");
         }
         for (; i < argc; ++i) {

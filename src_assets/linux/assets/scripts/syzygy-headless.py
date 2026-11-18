@@ -8,6 +8,7 @@ import re
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -35,11 +36,15 @@ def private_environment(source, runtime, binary):
     env['CONFIGURATION_DIRECTORY'] = (source.get('CONFIGURATION_DIRECTORY') or
         source.get('XDG_CONFIG_HOME') or str(Path(source.get('HOME', str(Path.home()))) / '.config'))
     env['SUNSHINE_MIGRATE_CONFIG'] = '0'
+    # Keep the session mode explicit for desktop applications and input routing.
+    env['SYZYGY_HEADLESS_TOUCH'] = '1' if source.get('SYZYGY_HEADLESS_TOUCH') == '1' else '0'
     env.update(XDG_RUNTIME_DIR=str(runtime), XDG_DATA_HOME=str(runtime / 'data'),
                XDG_CONFIG_HOME=str(runtime / 'config'),
                XDG_CACHE_HOME=str(runtime / 'cache'),
                XDG_SESSION_TYPE='wayland', XDG_CURRENT_DESKTOP='KDE',
                SYZYGY_HEADLESS_SESSION='1', SYZYGY_HEADLESS_BINARY=str(binary),
+               SYZYGY_HEADLESS_RUNTIME_DIR=str(runtime),
+               SYZYGY_HEADLESS_WAYLAND_DISPLAY='wayland-syzygy',
                QT_QPA_PLATFORM='wayland', KWIN_COMPOSE='O2',
                QT_FORCE_STDERR_LOGGING='1', QT_LOGGING_TO_CONSOLE='1')
     return env
@@ -82,6 +87,77 @@ def wait_for(predicate, children, description, timeout=30):
     raise RuntimeError(f'Timed out waiting for {description}')
 
 
+def is_mountpoint(path):
+    """Check mountinfo without stat() on a possibly disconnected FUSE mount."""
+    target = os.path.normpath(os.path.abspath(os.fspath(path)))
+    try:
+        with open('/proc/self/mountinfo', encoding='utf-8') as mountinfo:
+            for line in mountinfo:
+                fields = line.split()
+                if len(fields) > 4:
+                    mounted_path = re.sub(
+                        r'\\([0-7]{3})',
+                        lambda match: chr(int(match.group(1), 8)),
+                        fields[4])
+                    if mounted_path == target:
+                        return True
+    except OSError:
+        return False
+    return False
+
+
+def cleanup_private_document_portal(runtime):
+    """Unmount only the document-portal FUSE mount owned by this private session."""
+    mountpoint = Path(runtime) / 'doc'
+    if not is_mountpoint(mountpoint):
+        return
+    unmount_tools = [tool for tool in (shutil.which('fusermount3'), shutil.which('fusermount'))
+                     if tool]
+    if not unmount_tools:
+        raise RuntimeError(f'Cannot clean up private document portal mount at {mountpoint}: '
+                           'fusermount3/fusermount is unavailable')
+    for tool in unmount_tools:
+        for option in ('-u', '-uz'):
+            try:
+                subprocess.run([tool, option, str(mountpoint)], check=False,
+                               timeout=10, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+            if not is_mountpoint(mountpoint):
+                print('Syzygy: private document portal mount cleaned up',
+                      file=sys.stderr, flush=True)
+                return
+    raise RuntimeError(f'Could not unmount private document portal at {mountpoint}')
+
+
+def force_tablet_mode(env):
+    """Force Plasma/KWin tablet mode in this disposable private session."""
+    if env.get('SYZYGY_HEADLESS_TOUCH') != '1':
+        return
+    config_dir = Path(env['XDG_CONFIG_HOME'])
+    config_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+    kwinrc = config_dir / 'kwinrc'
+    # KWin reads Input/TabletMode during startup. The private XDG_CONFIG_HOME
+    # ensures this cannot modify the user's regular desktop configuration.
+    lines = kwinrc.read_text().splitlines() if kwinrc.exists() else []
+    section_start = next((i for i, line in enumerate(lines) if line.strip() == '[Input]'), None)
+    if section_start is None:
+        if lines and lines[-1].strip():
+            lines.append('')
+        lines.extend(['[Input]', 'TabletMode=on'])
+    else:
+        section_end = next((i for i in range(section_start + 1, len(lines))
+                            if lines[i].lstrip().startswith('[')), len(lines))
+        key_index = next((i for i in range(section_start + 1, section_end)
+                          if lines[i].split('=', 1)[0].strip() == 'TabletMode'), None)
+        if key_index is None:
+            lines.insert(section_end, 'TabletMode=on')
+        else:
+            lines[key_index] = 'TabletMode=on'
+    kwinrc.write_text('\n'.join(lines) + '\n')
+
+
 def install_permission(runtime, binary):
     apps = runtime / 'data/applications'
     apps.mkdir(parents=True, mode=0o700, exist_ok=True)
@@ -96,22 +172,73 @@ def install_permission(runtime, binary):
         'X-KDE-Wayland-Interfaces=zkde_screencast_unstable_v1,org_kde_kwin_fake_input\n')
 
 
+
+def private_display_environment(source):
+    """Fail closed unless KWin handed the wrapper its own private Wayland socket."""
+    expected_runtime = source.get('SYZYGY_HEADLESS_RUNTIME_DIR')
+    expected_display = source.get('SYZYGY_HEADLESS_WAYLAND_DISPLAY')
+    if not expected_runtime or not expected_display:
+        raise RuntimeError('Private headless session markers are missing')
+    runtime = Path(expected_runtime).resolve(strict=True)
+    current_runtime = Path(source.get('XDG_RUNTIME_DIR', '')).resolve(strict=True)
+    if current_runtime != runtime:
+        raise RuntimeError('Refusing to start Syzygy outside its private runtime directory')
+    display = source.get('WAYLAND_DISPLAY', '')
+    display_path = Path(display) if display else None
+    if not display_path or display_path.name != expected_display:
+        raise RuntimeError(
+            f'Refusing non-private Wayland display {display!r}; '
+            f'expected socket {expected_display!r}')
+    # Wayland normally supplies a socket name, but some compositor launch paths
+    # export its absolute path. Accept either form only when it resolves to the
+    # exact expected socket inside this session's private runtime directory.
+    socket_path = display_path if display_path.is_absolute() else runtime / display_path
+    # Reject an out-of-runtime path before checking whether the target exists.
+    # Otherwise a missing external path is misreported as a missing private
+    # socket, obscuring the actual boundary violation.
+    candidate = socket_path.resolve(strict=False)
+    if candidate.parent != runtime or candidate.name != expected_display:
+        raise RuntimeError(
+            'Wayland display is not the expected socket inside the private runtime')
+    try:
+        display_socket = socket_path.resolve(strict=True)
+    except OSError as error:
+        raise RuntimeError(
+            f'Private Wayland socket {socket_path} is not available') from error
+    if (display_socket.parent != runtime or display_socket.name != expected_display
+            or not stat.S_ISSOCK(display_socket.stat().st_mode)):
+        raise RuntimeError(
+            'Wayland display is not the expected socket inside the private runtime')
+    dbus_address = source.get('DBUS_SESSION_BUS_ADDRESS', '')
+    if not dbus_address.startswith('unix:'):
+        raise RuntimeError('Private D-Bus session address is missing or not a Unix socket')
+    env = dict(source)
+    env.update(XDG_RUNTIME_DIR=str(runtime), WAYLAND_DISPLAY=display,
+               XDG_SESSION_TYPE='wayland', QT_QPA_PLATFORM='wayland')
+    return env
+
 def desktop(binary, arguments):
     children = Children()
     try:
-        env = dict(os.environ)
+        env = private_display_environment(os.environ)
+        print('Syzygy: verified private Wayland display; refusing native-session fallback',
+              file=sys.stderr, flush=True)
         # KWin supplies the private display to this child after D-Bus starts.
         # Propagate it before Plasma activates its activity manager and portals.
         # Never import into systemd's shared user manager (--systemd).
         subprocess.run(['dbus-update-activation-environment',
             'WAYLAND_DISPLAY', 'DISPLAY', 'XAUTHORITY', 'XDG_RUNTIME_DIR',
-            'XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE', 'QT_QPA_PLATFORM'],
+            'XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE', 'QT_QPA_PLATFORM', 'PULSE_SINK'],
             env=env, check=True, timeout=20)
         children.start(['plasmashell'], env)
-        # Pass original shortcut semantics to Syzygy, with the private backend
-        # taking precedence over saved portal/KMS settings.
-        server = children.start([str(binary), *arguments, 'capture=kwin',
-                                 'portal_virtual_display=disabled'], env)
+        # Keep application playback and Syzygy's monitor capture on the same
+        # private null sink. Preserve an explicit per-session CLI override.
+        server_arguments = [str(binary), *arguments]
+        if not any(arg.startswith('audio_sink=') for arg in arguments):
+            server_arguments.append('audio_sink=syzygy_headless')
+        # The private backend takes precedence over saved portal/KMS settings.
+        server_arguments.extend(['capture=kwin', 'portal_virtual_display=disabled'])
+        server = children.start(server_arguments, env)
         status = server.wait()
         (Path(env['XDG_RUNTIME_DIR']) / 'server-exit-status').write_text(str(status))
         return status
@@ -119,12 +246,45 @@ def desktop(binary, arguments):
         children.close()
 
 
+def configure_headless_audio(env):
+    """Create and verify the private Syzygy output before starting desktop apps."""
+    subprocess.run(['pactl', 'load-module', 'module-null-sink',
+                    'sink_name=syzygy_headless',
+                    'sink_properties=device.description=Syzygy'],
+                   env=env, check=True, timeout=20, capture_output=True, text=True)
+    subprocess.run(['pactl', 'set-default-sink', 'syzygy_headless'],
+                   env=env, check=True, timeout=20, capture_output=True, text=True)
+    # PipeWire's PulseAudio compatibility server may return the literal
+    # @DEFAULT_SINK@ token from get-default-sink even after set-default-sink.
+    # Verify the concrete sink and monitor objects instead; PULSE_SINK below
+    # pins every application in this private desktop to the intended sink.
+    sinks = subprocess.run(['pactl', 'list', 'short', 'sinks'], env=env,
+                           check=True, timeout=10, capture_output=True,
+                           text=True).stdout.splitlines()
+    sink_exists = any(len(line.split()) >= 2 and line.split()[1] == 'syzygy_headless'
+                      for line in sinks)
+    if not sink_exists:
+        raise RuntimeError('Syzygy headless audio sink was not created')
+    sources = subprocess.run(['pactl', 'list', 'short', 'sources'], env=env,
+                              check=True, timeout=10, capture_output=True,
+                              text=True).stdout.splitlines()
+    monitor = any(len(line.split()) >= 2 and line.split()[1] == 'syzygy_headless.monitor'
+                  for line in sources)
+    if not monitor:
+        raise RuntimeError('Syzygy headless audio monitor source was not created')
+    env['PULSE_SINK'] = 'syzygy_headless'
+    print('Syzygy: headless audio output is Syzygy (monitor: syzygy_headless.monitor)',
+          file=sys.stderr, flush=True)
+
 def session(binary, arguments):
     children = Children()
     env = dict(os.environ)
     runtime = Path(env['XDG_RUNTIME_DIR'])
     width, height = size(env.get('SYZYGY_HEADLESS_SIZE', '1920x1080'))
     try:
+        # Force KWin tablet mode before the compositor reads its configuration.
+        # This edits only the disposable private KDE configuration.
+        force_tablet_mode(env)
         # Build the permission registry before the compositor or any client connects.
         # Keep it private so an existing user's KDE cache cannot hide this entry.
         subprocess.run(['kbuildsycoca6', '--noincremental'], env=env, check=True, timeout=30)
@@ -133,12 +293,7 @@ def session(binary, arguments):
         children.start(['wireplumber'], env)
         children.start(['pipewire-pulse'], env)
         wait_for(lambda: (runtime / 'pulse/native').exists(), children, 'audio server')
-        # A null sink gives applications a working default audio output with no
-        # physical audio device. Syzygy captures its monitor through PulseAudio.
-        for command in (['pactl', 'load-module', 'module-null-sink',
-                         'sink_name=syzygy_headless', 'sink_properties=device.description=Syzygy'],
-                        ['pactl', 'set-default-sink', 'syzygy_headless']):
-            subprocess.run(command, env=env, check=True, timeout=20, stdout=subprocess.DEVNULL)
+        configure_headless_audio(env)
         env['SYZYGY_HEADLESS_ARGUMENTS'] = json.dumps(arguments)
         wrapper = runtime / 'desktop-session'
         wrapper.write_text('#!/bin/sh\nexec ' + shlex.join(
@@ -148,7 +303,8 @@ def session(binary, arguments):
             '--height', str(height), '--output-count', '1', '--socket', 'wayland-syzygy',
             '--xwayland', '--no-lockscreen', '--no-global-shortcuts',
             '--exit-with-session', str(wrapper)], env)
-        print(f'Syzygy: starting private headless desktop {width}x{height}', file=sys.stderr, flush=True)
+        mode = 'touch-enabled' if env.get('SYZYGY_HEADLESS_TOUCH') == '1' else 'standard'
+        print(f'Syzygy: starting private {mode} KDE desktop {width}x{height}', file=sys.stderr, flush=True)
         result = compositor.wait()
         status_file = runtime / 'server-exit-status'
         if status_file.exists():
@@ -175,10 +331,12 @@ def main():
         raise RuntimeError('Run headless Syzygy as your regular Linux user, not root')
     size(os.environ.get('SYZYGY_HEADLESS_SIZE', '1920x1080'))
     missing = [name for name in DEPENDENCIES if not shutil.which(name)]
+    if not (shutil.which('fusermount3') or shutil.which('fusermount')):
+        missing.append('fusermount3 or fusermount')
     if missing:
         raise RuntimeError('Missing headless programs: ' + ', '.join(missing) +
             '. Fedora: sudo dnf install kwin-wayland plasma-workspace xorg-x11-server-Xwayland '
-            'pipewire pipewire-pulseaudio wireplumber pulseaudio-utils dbus-daemon dbus-tools python3')
+            'pipewire pipewire-pulseaudio wireplumber pulseaudio-utils dbus-daemon dbus-tools fuse3 python3')
     with tempfile.TemporaryDirectory(prefix=f'syzygy-headless-{os.getuid()}-') as directory:
         runtime = Path(directory)
         runtime.chmod(0o700)
@@ -201,6 +359,7 @@ def main():
             except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait()
+            cleanup_private_document_portal(runtime)
 
 
 if __name__ == '__main__':

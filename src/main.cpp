@@ -181,13 +181,17 @@ int main(int argc, char *argv[]) {
     return 2;
   }
 #endif
-  if (cli.headless) {
+  if (cli.headless || cli.headless_touch) {
 #ifdef __linux__
     const auto launcher = std::filesystem::path(SUNSHINE_ASSETS_DIR) / "scripts/syzygy-headless.py";
     std::vector<std::string> args {"python3", launcher.string(), "--binary",
         std::filesystem::read_symlink("/proc/self/exe").string(), "--"};
     // Forward the original shortcuts so -auto, -s and -psk retain their meaning.
-    for (int i = 1; i < argc; ++i) if (std::string(argv[i]) != "-headless") args.emplace_back(argv[i]);
+    for (int i = 1; i < argc; ++i) {
+      const std::string arg(argv[i]);
+      if (arg != "-headless" && arg != "--headless-touch") args.emplace_back(argv[i]);
+    }
+    if (cli.headless_touch) setenv("SYZYGY_HEADLESS_TOUCH", "1", 1);
     std::vector<char *> exec_args;
     for (auto &arg : args) exec_args.push_back(arg.data());
     exec_args.push_back(nullptr);
