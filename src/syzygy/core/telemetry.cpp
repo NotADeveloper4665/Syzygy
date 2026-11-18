@@ -108,7 +108,7 @@ pipeline_assessment assess_pipeline(
                              static_cast<unsigned int>(host_pipeline) +
                              static_cast<unsigned int>(client);
 
-  if (observed < policy.minimum_observed_stages) {
+  if (observed < policy.minimum_observed_stages && !sample.host_pipeline_ms) {
     result.explanation = "Not enough fresh measurements to classify the pipeline.";
     return result;
   }
