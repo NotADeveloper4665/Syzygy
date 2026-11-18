@@ -22,13 +22,13 @@ telemetry_sample baseline_sample(monotonic_clock::time_point now) {
 }
 }  // namespace
 
-TEST(CoreTelemetry, MissingIsNotMeasuredZero) {
+TEST(CoreTelemetry, MissingIsNotMeasuredZeroDoesNotClaimHealthy) {
   const auto now = monotonic_clock::now();
   auto sample = baseline_sample(now);
   sample.capture_ms = 0.0;
   sample.encode_ms.reset();
   EXPECT_TRUE(syzygy::core::valid_sample(sample));
-  EXPECT_EQ(syzygy::core::assess_pipeline(sample, telemetry_policy {}, now).classification, bottleneck::healthy);
+  EXPECT_EQ(syzygy::core::assess_pipeline(sample, telemetry_policy {}, now).classification, bottleneck::insufficient_data);
 }
 
 TEST(CoreTelemetry, RejectsNonFiniteAndOutOfRangeMeasurements) {
