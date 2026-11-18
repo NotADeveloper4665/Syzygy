@@ -31,8 +31,8 @@ bool valid_sample(const telemetry_sample& sample) noexcept {
 }
 
 bool valid_policy(const telemetry_policy& policy) noexcept {
-  const auto valid_threshold = [](double value) {
-    return std::isfinite(value) && value > 0.0 && value <= 5000.0;
+  const auto valid_threshold = [](double value, double maximum = 5000.0) {
+    return std::isfinite(value) && value > 0.0 && value <= maximum;
   };
   return policy.freshness_window > std::chrono::milliseconds::zero() &&
          policy.freshness_window <= std::chrono::minutes(5) &&
@@ -41,7 +41,7 @@ bool valid_policy(const telemetry_policy& policy) noexcept {
          valid_threshold(policy.send_queue_threshold_ms) &&
          valid_threshold(policy.network_rtt_threshold_ms) &&
          valid_threshold(policy.network_jitter_threshold_ms) &&
-         valid_threshold(policy.packet_loss_threshold_per_mille) &&
+         valid_threshold(policy.packet_loss_threshold_per_mille, 1000.0) &&
          valid_threshold(policy.client_decode_threshold_ms) &&
          valid_threshold(policy.client_presentation_threshold_ms) &&
          policy.minimum_observed_stages >= 1 &&
@@ -75,17 +75,18 @@ pipeline_assessment assess_pipeline(
   bool network = false;
   bool client = false;
 
-  const auto count = [&](const auto& value) {
-    if (value) ++observed;
-  };
-  count(sample.capture_ms);
-  count(sample.encode_ms);
-  count(sample.send_queue_ms);
-  count(sample.network_rtt_ms);
-  count(sample.network_jitter_ms);
-  count(sample.packet_loss_per_mille);
-  count(sample.client_decode_ms);
-  count(sample.client_presentation_ms);
+  const bool capture_observed = sample.capture_ms.has_value();
+  const bool encode_observed = sample.encode_ms.has_value();
+  const bool network_observed = sample.send_queue_ms.has_value() ||
+                                sample.network_rtt_ms.has_value() ||
+                                sample.network_jitter_ms.has_value() ||
+                                sample.packet_loss_per_mille.has_value();
+  const bool client_observed = sample.client_decode_ms.has_value() ||
+                               sample.client_presentation_ms.has_value();
+  observed = static_cast<unsigned int>(capture_observed) +
+             static_cast<unsigned int>(encode_observed) +
+             static_cast<unsigned int>(network_observed) +
+             static_cast<unsigned int>(client_observed);
 
   capture = elevated(sample.capture_ms, policy.capture_threshold_ms);
   encode = elevated(sample.encode_ms, policy.encode_threshold_ms);
