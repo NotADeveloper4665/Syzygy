@@ -16,7 +16,7 @@ import time
 
 DEPENDENCIES = ('dbus-run-session', 'kwin_wayland', 'plasmashell', 'Xwayland',
                 'pipewire', 'wireplumber', 'pipewire-pulse', 'pactl', 'kbuildsycoca6',
-                'dbus-update-activation-environment', 'fusermount3')
+                'dbus-update-activation-environment')
 
 
 def size(value):
@@ -302,6 +302,8 @@ def main():
         raise RuntimeError('Run headless Syzygy as your regular Linux user, not root')
     size(os.environ.get('SYZYGY_HEADLESS_SIZE', '1920x1080'))
     missing = [name for name in DEPENDENCIES if not shutil.which(name)]
+    if not (shutil.which('fusermount3') or shutil.which('fusermount')):
+        missing.append('fusermount3 or fusermount')
     if missing:
         raise RuntimeError('Missing headless programs: ' + ', '.join(missing) +
             '. Fedora: sudo dnf install kwin-wayland plasma-workspace xorg-x11-server-Xwayland '
