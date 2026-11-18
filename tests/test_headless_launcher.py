@@ -5,7 +5,7 @@ import socket
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, mock_open, patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'src_assets/linux/assets/scripts/syzygy-headless.py'
 spec = importlib.util.spec_from_file_location('headless', SCRIPT)
@@ -214,6 +214,29 @@ class LauncherTests(unittest.TestCase):
             headless.cleanup_private_document_portal(Path('/tmp/private-runtime'))
         which.assert_not_called()
         run.assert_not_called()
+
+    def test_cleanup_fails_clearly_when_unmount_tool_is_missing(self):
+        with patch.object(headless, 'is_mountpoint', return_value=True), \
+             patch.object(headless.shutil, 'which', return_value=None), \
+             patch.object(headless.subprocess, 'run') as run:
+            with self.assertRaisesRegex(RuntimeError, 'fusermount3/fusermount is unavailable'):
+                headless.cleanup_private_document_portal(Path('/tmp/private-runtime'))
+            run.assert_not_called()
+
+    def test_cleanup_reports_mount_that_survives_both_unmount_attempts(self):
+        with patch.object(headless, 'is_mountpoint', return_value=True), \
+             patch.object(headless.shutil, 'which', side_effect=['/usr/bin/fusermount3', None]), \
+             patch.object(headless.subprocess, 'run') as run:
+            with self.assertRaisesRegex(RuntimeError, 'Could not unmount private document portal'):
+                headless.cleanup_private_document_portal(Path('/tmp/private-runtime'))
+        self.assertEqual([call.args[0][1] for call in run.call_args_list], ['-u', '-uz'])
+
+    def test_mountpoint_parser_decodes_mountinfo_escaped_spaces(self):
+        with tempfile.TemporaryDirectory(prefix='syzygy mount ') as directory:
+            escaped = directory.replace(' ', r'\\040')
+            mountinfo = f'36 25 0:32 / {escaped} rw,nosuid - fuse.portal portal rw\\n'
+            with patch('builtins.open', mock_open(read_data=mountinfo)):
+                self.assertTrue(headless.is_mountpoint(directory))
 
     def test_dependency_failure_precedes_session_creation(self):
         with patch.object(headless.os, 'geteuid', return_value=1000), \
