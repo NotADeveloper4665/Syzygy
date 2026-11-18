@@ -233,8 +233,8 @@ class LauncherTests(unittest.TestCase):
 
     def test_mountpoint_parser_decodes_mountinfo_escaped_spaces(self):
         with tempfile.TemporaryDirectory(prefix='syzygy mount ') as directory:
-            escaped = directory.replace(' ', r'\\040')
-            mountinfo = f'36 25 0:32 / {escaped} rw,nosuid - fuse.portal portal rw\\n'
+            escaped = directory.replace(' ', r'\040')
+            mountinfo = f'36 25 0:32 / {escaped} rw,nosuid - fuse.portal portal rw\n'
             with patch('builtins.open', mock_open(read_data=mountinfo)):
                 self.assertTrue(headless.is_mountpoint(directory))
 
