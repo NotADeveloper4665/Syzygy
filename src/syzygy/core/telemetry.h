@@ -16,6 +16,10 @@ struct telemetry_sample {
   std::optional<double> capture_ms;
   std::optional<double> encode_ms;
   std::optional<double> send_queue_ms;
+
+  // Combined capture-to-network-broadcast host pipeline time. This cannot
+  // distinguish capture, conversion, encoding, or queueing individually.
+  std::optional<double> host_pipeline_ms;
   std::optional<double> network_rtt_ms;
   std::optional<double> network_jitter_ms;
 
@@ -32,6 +36,7 @@ struct telemetry_policy {
   double capture_threshold_ms {8.0};
   double encode_threshold_ms {8.0};
   double send_queue_threshold_ms {8.0};
+  double host_pipeline_threshold_ms {20.0};
   double network_rtt_threshold_ms {80.0};
   double network_jitter_threshold_ms {15.0};
   double packet_loss_threshold_per_mille {20.0};
@@ -45,6 +50,7 @@ enum class bottleneck {
   capture_bound,
   encode_bound,
   network_bound,
+  host_pipeline_pressure,
   client_bound,
   mixed,
   insufficient_data,
