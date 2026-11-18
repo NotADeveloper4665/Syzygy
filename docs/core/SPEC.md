@@ -1,7 +1,7 @@
 # Syzygy Core — Product and Feature Specification
 
 Status: Draft implementation baseline  
-Scope: Core platform foundation and Adaptive Pipeline Director (APD) milestone 0
+Scope: Core platform foundation and Adaptive Pipeline Director (APD) milestones 0–1
 
 ## 1. Problem
 
@@ -46,6 +46,7 @@ A sample belongs to exactly one session and one monotonic observation time. Meas
 | Capture latency | milliseconds | 0–5000 | Adapter not yet wired |
 | Encode latency | milliseconds | 0–5000 | Adapter not yet wired |
 | Send queue latency | milliseconds | 0–5000 | Adapter not yet wired |
+| Combined host pipeline latency | milliseconds | 0–5000 | Wired from captured-frame timestamp to broadcaster processing point; aggregate only, not stage-isolated |
 | Network RTT | milliseconds | 0–5000 | No verified runtime adapter |
 | Network jitter | milliseconds | 0–5000 | No verified runtime adapter |
 | Packet loss | per mille | 0–1000 | Existing client loss packet is count/time, not a verified rate |
@@ -101,7 +102,15 @@ A classification must include the measurements that triggered it, an explanation
 4. Run observe-only on real sessions and compare against independent measurements.
 5. Specify and review automatic actions separately. No automatic control is enabled by this document.
 
-## 10. Open questions
+## 10. Verified runtime adapter (milestone 1)
+
+The video broadcaster already computes `frame_processing_latency` from `packet->frame_timestamp` to the point immediately before packet preparation and transmission. It is quantized in 0.1 ms units for the Moonlight frame header. Core stores this as `host_pipeline_ms` on the owning `session_t`, converting the transmitted value back to milliseconds.
+
+This is a combined host-side measurement. It includes work between the original frame timestamp and the broadcaster observation point; it does not separate capture, conversion, encoder execution, packet queue wait, or client display time. It must never be relabeled as encode latency, capture latency, or end-to-end latency. It is session-owned and observe-only.
+
+The existing loss feedback packet remains count plus elapsed milliseconds and is not converted to a loss percentage. RTT, jitter, and client decode/presentation remain unavailable until a verified source exists.
+
+## 11. Open questions
 
 - Which client protocol extension, if any, can safely report decode and presentation timing?
 - What host APIs provide reliable capture and encoder stage timings across NVENC, VAAPI, and software encoding?
