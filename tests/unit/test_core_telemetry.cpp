@@ -98,6 +98,14 @@ TEST(CoreTelemetry, ClientBoundRequiresExplicitClientTelemetry) {
   EXPECT_EQ(syzygy::core::assess_pipeline(sample, telemetry_policy {}, now).classification, bottleneck::healthy);
 }
 
+TEST(CoreTelemetry, IncompleteHostPipelineCannotClaimSingleBottleneck) {
+  const auto now = monotonic_clock::now();
+  auto sample = baseline_sample(now);
+  sample.encode_ms.reset();
+  sample.capture_ms = 12.0;
+  EXPECT_EQ(syzygy::core::assess_pipeline(sample, telemetry_policy {}, now).classification, bottleneck::insufficient_data);
+}
+
 TEST(CoreTelemetry, InsufficientMeasurementsDoNotReportHealthy) {
   const auto now = monotonic_clock::now();
   telemetry_sample sample;
