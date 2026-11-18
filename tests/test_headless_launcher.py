@@ -24,7 +24,8 @@ class LauncherTests(unittest.TestCase):
                        'SYZYGY_HEADLESS_RUNTIME_DIR': directory,
                        'SYZYGY_HEADLESS_WAYLAND_DISPLAY': 'wayland-syzygy',
                        'WAYLAND_DISPLAY': 'wayland-syzygy',
-                       'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/tmp/private-dbus'}
+                       'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/tmp/private-dbus',
+                       'PULSE_SINK': 'syzygy_headless'}
                 child = MagicMock()
                 child.wait.return_value = 0
                 def run(command, **kwargs):
@@ -38,6 +39,8 @@ class LauncherTests(unittest.TestCase):
                     self.assertEqual(headless.desktop(Path('/usr/bin/syzygy'), ['-s']), 0)
             self.assertEqual(events[0][0][0], 'dbus-update-activation-environment')
             self.assertIn('WAYLAND_DISPLAY', events[0][0])
+            self.assertIn('PULSE_SINK', events[0][0])
+            self.assertEqual(events[0][1]['PULSE_SINK'], 'syzygy_headless')
             self.assertNotIn('--systemd', events[0][0])
             self.assertEqual(events[1][0], ['plasmashell'])
             self.assertEqual(events[2][0][0], '/usr/bin/syzygy')
