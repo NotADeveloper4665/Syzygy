@@ -122,7 +122,7 @@ def cleanup_private_document_portal(runtime):
                 subprocess.run([tool, option, str(mountpoint)], check=False,
                                timeout=10, stdout=subprocess.DEVNULL,
                                stderr=subprocess.DEVNULL)
-            except subprocess.TimeoutExpired:
+            except (OSError, subprocess.TimeoutExpired):
                 pass
             if not is_mountpoint(mountpoint):
                 print('Syzygy: private document portal mount cleaned up',
