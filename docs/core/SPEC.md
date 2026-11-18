@@ -93,6 +93,7 @@ A classification must include the measurements that triggered it, an explanation
 | CORE-AC-10 | New source files are included in normal and test builds | Linux build and CI |
 | CORE-AC-11 | Runtime instrumentation source and units are documented | Adapter tests and code review |
 | CORE-AC-12 | Target T1600 telemetry matches independent measurement | Hardware acceptance |
+| CORE-AC-13 | Combined host-pipeline timing is recorded per session without claiming a specific substage | Adapter review and smoke test |
 
 ## 9. Rollout
 
