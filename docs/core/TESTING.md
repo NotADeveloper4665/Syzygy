@@ -14,6 +14,12 @@ Required cases:
 - Client-bound is never inferred from server-side timing.
 - Assessments are deterministic and do not mutate samples or stream configuration.
 
+## Automated smoke test
+
+The Linux workflow compiles and runs `tests/core_telemetry_smoke.cpp` directly with the Core implementation. It verifies combined host-pipeline classification, low confidence, observe-only behavior, invalid measurement rejection, incomplete-data handling, and a complete non-elevated sample.
+
+The full GoogleTest target remains a separate validation item; the RPM packaging job currently configures `BUILD_TESTS=OFF`.
+
 ## Build validation
 
 - New source files must compile in the normal server target and test target.
