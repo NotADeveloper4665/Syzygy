@@ -81,6 +81,17 @@ TEST(CoreTelemetry, IdentifiesNetworkBoundPipeline) {
   EXPECT_EQ(syzygy::core::assess_pipeline(sample, telemetry_policy {}, now).classification, bottleneck::network_bound);
 }
 
+TEST(CoreTelemetry, CombinedHostPipelineMeasurementDoesNotInventAStage) {
+  const auto now = monotonic_clock::now();
+  telemetry_sample sample;
+  sample.observed_at = now;
+  sample.host_pipeline_ms = 24.0;
+  const auto result = syzygy::core::assess_pipeline(sample, telemetry_policy {}, now);
+  EXPECT_EQ(result.classification, bottleneck::host_pipeline_pressure);
+  EXPECT_EQ(result.certainty, syzygy::core::confidence::low);
+  EXPECT_TRUE(result.explanation.find("cannot be distinguished") != std::string::npos);
+}
+
 TEST(CoreTelemetry, MultipleElevatedStagesAreMixed) {
   const auto now = monotonic_clock::now();
   auto sample = baseline_sample(now);
