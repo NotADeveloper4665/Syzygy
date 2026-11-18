@@ -231,10 +231,14 @@ def desktop(binary, arguments):
             'XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE', 'QT_QPA_PLATFORM', 'PULSE_SINK'],
             env=env, check=True, timeout=20)
         children.start(['plasmashell'], env)
-        # Pass original shortcut semantics to Syzygy, with the private backend
-        # taking precedence over saved portal/KMS settings.
-        server = children.start([str(binary), *arguments, 'capture=kwin',
-                                 'portal_virtual_display=disabled'], env)
+        # Keep application playback and Syzygy's monitor capture on the same
+        # private null sink. Preserve an explicit per-session CLI override.
+        server_arguments = [str(binary), *arguments]
+        if not any(arg.startswith('audio_sink=') for arg in arguments):
+            server_arguments.append('audio_sink=syzygy_headless')
+        # The private backend takes precedence over saved portal/KMS settings.
+        server_arguments.extend(['capture=kwin', 'portal_virtual_display=disabled'])
+        server = children.start(server_arguments, env)
         status = server.wait()
         (Path(env['XDG_RUNTIME_DIR']) / 'server-exit-status').write_text(str(status))
         return status
