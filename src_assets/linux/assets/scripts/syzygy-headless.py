@@ -127,11 +127,17 @@ def configure_headless_audio(env):
                    env=env, check=True, timeout=20, capture_output=True, text=True)
     subprocess.run(['pactl', 'set-default-sink', 'syzygy_headless'],
                    env=env, check=True, timeout=20, capture_output=True, text=True)
-    default_sink = subprocess.run(['pactl', 'get-default-sink'], env=env,
-                                  check=True, timeout=10, capture_output=True,
-                                  text=True).stdout.strip()
-    if default_sink != 'syzygy_headless':
-        raise RuntimeError(f'Headless default audio output is {default_sink!r}, expected Syzygy')
+    # PipeWire's PulseAudio compatibility server may return the literal
+    # @DEFAULT_SINK@ token from get-default-sink even after set-default-sink.
+    # Verify the concrete sink and monitor objects instead; PULSE_SINK below
+    # pins every application in this private desktop to the intended sink.
+    sinks = subprocess.run(['pactl', 'list', 'short', 'sinks'], env=env,
+                           check=True, timeout=10, capture_output=True,
+                           text=True).stdout.splitlines()
+    sink_exists = any(len(line.split()) >= 2 and line.split()[1] == 'syzygy_headless'
+                      for line in sinks)
+    if not sink_exists:
+        raise RuntimeError('Syzygy headless audio sink was not created')
     sources = subprocess.run(['pactl', 'list', 'short', 'sources'], env=env,
                               check=True, timeout=10, capture_output=True,
                               text=True).stdout.splitlines()
