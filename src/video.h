@@ -264,6 +264,10 @@ namespace video {
     void *channel_data = nullptr;
     bool after_ref_frame_invalidation = false;
     std::optional<std::chrono::steady_clock::time_point> frame_timestamp;
+    // NVENC API submission-to-output latency; absent without a verified boundary.
+    std::optional<double> encode_ms;
+    // Time immediately before publishing this packet to the shared broadcaster queue.
+    std::chrono::steady_clock::time_point queued_at {};
   };
 
   struct packet_raw_avcodec: packet_raw_t {

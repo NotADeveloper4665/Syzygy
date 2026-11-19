@@ -18,11 +18,15 @@
 ## Milestone 1: verified host adapters
 
 - [x] Map existing frame timestamps and broadcaster processing-latency instrumentation to a per-session combined host-pipeline measurement.
-- [ ] Add per-session capture/encode/send queue measurements only where timing boundaries are independently verified.
+- [x] Add per-session NVENC API-to-matching-output timing with explicit driver/API-wait semantics.
+- [x] Add per-session internal packet queue-wait timing from publication to broadcaster dequeue.
+- [ ] Add per-session capture timing only after platform callback boundaries are verified.
+- [ ] Add AVCodec/FFmpeg encode timing after delayed/reordered outputs are frame-correlated safely.
 - [ ] Parse existing client feedback without treating loss counts as a loss rate.
 - [x] Document source, units, timing boundary, and freshness for the combined host-pipeline adapter.
 - [ ] Document sampling interval and source for each future adapter.
 - [ ] Add adapter-level tests, including session-isolation and missing-timestamp behavior.
+- [x] Prevent aggregate host-pipeline timing from being counted as a second independent bottleneck alongside detailed stage metrics.
 
 ## Milestone 2: observe-only diagnostics
 

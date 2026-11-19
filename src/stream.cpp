@@ -1361,6 +1361,16 @@ namespace stream {
       frame_network_latency_logger.first_point_now();
 
       auto session = (session_t *) packet->channel_data;
+      const auto packet_dequeued_at = std::chrono::steady_clock::now();
+      if (packet->queued_at.time_since_epoch().count() != 0) {
+        session->core_telemetry.send_queue_ms = std::chrono::duration<double, std::milli>(packet_dequeued_at - packet->queued_at).count();
+      } else {
+        session->core_telemetry.send_queue_ms.reset();
+      }
+      // NVENC provides a verified frame-index-matched API-to-output interval.
+      // Other encoder backends remain unavailable rather than being guessed.
+      session->core_telemetry.encode_ms = packet->encode_ms;
+      session->core_telemetry.observed_at = packet_dequeued_at;
       auto lowseq = session->video.lowseq;
 
       std::string_view payload {(char *) packet->data(), packet->data_size()};

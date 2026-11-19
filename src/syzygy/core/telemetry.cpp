@@ -71,13 +71,10 @@ pipeline_assessment assess_pipeline(
     return result;
   }
 
-  unsigned int observed = 0;
   bool capture = false;
   bool encode = false;
   bool network = false;
-  bool host_pipeline = false;
   bool client = false;
-
   const bool capture_observed = sample.capture_ms.has_value();
   const bool encode_observed = sample.encode_ms.has_value();
   const bool network_observed = sample.send_queue_ms.has_value() ||
@@ -86,11 +83,10 @@ pipeline_assessment assess_pipeline(
                                 sample.packet_loss_per_mille.has_value();
   const bool client_observed = sample.client_decode_ms.has_value() ||
                                sample.client_presentation_ms.has_value();
-  observed = static_cast<unsigned int>(capture_observed) +
-             static_cast<unsigned int>(encode_observed) +
-             static_cast<unsigned int>(network_observed) +
-             static_cast<unsigned int>(sample.host_pipeline_ms.has_value()) +
-             static_cast<unsigned int>(client_observed);
+  const unsigned int observed = static_cast<unsigned int>(capture_observed) +
+                                static_cast<unsigned int>(encode_observed) +
+                                static_cast<unsigned int>(network_observed) +
+                                static_cast<unsigned int>(client_observed);
 
   capture = elevated(sample.capture_ms, policy.capture_threshold_ms);
   encode = elevated(sample.encode_ms, policy.encode_threshold_ms);
@@ -98,47 +94,45 @@ pipeline_assessment assess_pipeline(
             elevated(sample.network_rtt_ms, policy.network_rtt_threshold_ms) ||
             elevated(sample.network_jitter_ms, policy.network_jitter_threshold_ms) ||
             elevated(sample.packet_loss_per_mille, policy.packet_loss_threshold_per_mille);
-  host_pipeline = elevated(sample.host_pipeline_ms, policy.host_pipeline_threshold_ms);
+  const bool host_pipeline_elevated = elevated(sample.host_pipeline_ms, policy.host_pipeline_threshold_ms);
   client = elevated(sample.client_decode_ms, policy.client_decode_threshold_ms) ||
            elevated(sample.client_presentation_ms, policy.client_presentation_threshold_ms);
 
-  const auto elevated_count = static_cast<unsigned int>(capture) +
-                             static_cast<unsigned int>(encode) +
-                             static_cast<unsigned int>(network) +
-                             static_cast<unsigned int>(host_pipeline) +
-                             static_cast<unsigned int>(client);
+  // Aggregate host timing overlaps detailed stages; use it as fallback or
+  // corroboration, never as a second independent stage.
+  const unsigned int detailed_elevated_count = static_cast<unsigned int>(capture) +
+                                               static_cast<unsigned int>(encode) +
+                                               static_cast<unsigned int>(network) +
+                                               static_cast<unsigned int>(client);
+  const bool host_pipeline_fallback = host_pipeline_elevated && detailed_elevated_count == 0;
+  const unsigned int elevated_count = detailed_elevated_count +
+                                      static_cast<unsigned int>(host_pipeline_fallback);
 
-  if (observed < policy.minimum_observed_stages && !sample.host_pipeline_ms) {
+  if (observed < policy.minimum_observed_stages && !host_pipeline_fallback) {
     result.explanation = "Not enough fresh measurements to classify the pipeline.";
     return result;
   }
 
-  const bool complete_host_pipeline = sample.capture_ms.has_value() &&
-                                      sample.encode_ms.has_value() &&
-                                      network_observed;
-  if (elevated_count == 1 && !complete_host_pipeline && !host_pipeline) {
-    result.explanation = "A single elevated stage cannot be isolated because host pipeline measurements are incomplete.";
+  const bool complete_host_pipeline = capture_observed && encode_observed && network_observed;
+  if (detailed_elevated_count == 1 && !complete_host_pipeline) {
+    result.explanation = "A single elevated stage cannot be isolated because capture, encode, and network measurements are incomplete.";
     return result;
   }
-  if (elevated_count == 0 && !complete_host_pipeline) {
+  if (detailed_elevated_count == 0 && !host_pipeline_fallback && !complete_host_pipeline) {
     result.explanation = "Healthy status requires fresh capture, encode, and network measurements.";
-    return result;
-  }
-  if (client && !client_observed) {
-    result.explanation = "Client classification requires explicit client telemetry.";
     return result;
   }
 
   if (capture) result.evidence.emplace_back("Capture latency crossed its configured threshold.");
-  if (encode) result.evidence.emplace_back("Encode latency crossed its configured threshold.");
-  if (network) result.evidence.emplace_back("Send or network telemetry crossed its configured threshold.");
-  if (host_pipeline) result.evidence.emplace_back("Combined capture-to-broadcast host pipeline time crossed its configured threshold; this does not isolate a specific stage.");
+  if (encode) result.evidence.emplace_back("Encoder API-to-output latency crossed its configured threshold.");
+  if (network) result.evidence.emplace_back("Send-queue or network telemetry crossed its configured threshold.");
+  if (host_pipeline_elevated) result.evidence.emplace_back("Combined capture-to-broadcast host pipeline time crossed its configured threshold; it overlaps detailed stage measurements and is not counted as a separate stage.");
   if (client) result.evidence.emplace_back("Client decode or presentation telemetry crossed its configured threshold.");
 
   if (elevated_count > 1) {
     result.classification = bottleneck::mixed;
     result.certainty = confidence::medium;
-    result.explanation = "Multiple pipeline stages are elevated; no single bottleneck is established.";
+    result.explanation = "Multiple independently measured pipeline stages are elevated; no single bottleneck is established.";
   } else if (capture) {
     result.classification = bottleneck::capture_bound;
     result.certainty = confidence::medium;
@@ -146,12 +140,12 @@ pipeline_assessment assess_pipeline(
   } else if (encode) {
     result.classification = bottleneck::encode_bound;
     result.certainty = confidence::medium;
-    result.explanation = "Encode latency is elevated.";
+    result.explanation = "Encoder API-to-output latency is elevated.";
   } else if (network) {
     result.classification = bottleneck::network_bound;
     result.certainty = confidence::medium;
-    result.explanation = "Send or network telemetry indicates congestion.";
-  } else if (host_pipeline) {
+    result.explanation = "Send-queue or network telemetry indicates congestion.";
+  } else if (host_pipeline_fallback) {
     result.classification = bottleneck::host_pipeline_pressure;
     result.certainty = confidence::low;
     result.explanation = "Combined host-side frame processing time is elevated; capture, conversion, encoding, and queueing cannot be distinguished from this measurement.";
@@ -162,7 +156,7 @@ pipeline_assessment assess_pipeline(
   } else {
     result.classification = bottleneck::healthy;
     result.certainty = observed >= 4 ? confidence::high : confidence::medium;
-    result.explanation = "No observed stage crossed its configured threshold.";
+    result.explanation = "No independently observed stage crossed its configured threshold.";
   }
 
   result.observe_only = true;

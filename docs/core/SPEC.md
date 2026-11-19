@@ -44,8 +44,8 @@ A sample belongs to exactly one session and one monotonic observation time. Meas
 | Field | Unit | Valid range | Source status |
 | --- | --- | --- | --- |
 | Capture latency | milliseconds | 0–5000 | Adapter not yet wired |
-| Encode latency | milliseconds | 0–5000 | Adapter not yet wired |
-| Send queue latency | milliseconds | 0–5000 | Adapter not yet wired |
+| Encode latency | milliseconds | 0–5000 | NVENC API submission-to-matching-output latency wired; AVCodec/FFmpeg unavailable pending frame correlation |
+| Send queue latency | milliseconds | 0–5000 | Internal packet queue wait from publication to broadcaster dequeue; excludes network send |
 | Combined host pipeline latency | milliseconds | 0–5000 | Wired from captured-frame timestamp to broadcaster processing point; aggregate only, not stage-isolated |
 | Network RTT | milliseconds | 0–5000 | No verified runtime adapter |
 | Network jitter | milliseconds | 0–5000 | No verified runtime adapter |
@@ -94,6 +94,9 @@ A classification must include the measurements that triggered it, an explanation
 | CORE-AC-11 | Runtime instrumentation source and units are documented | Adapter tests and code review |
 | CORE-AC-12 | Target T1600 telemetry matches independent measurement | Hardware acceptance |
 | CORE-AC-13 | Combined host-pipeline timing is recorded per session without claiming a specific substage | Adapter review and smoke test |
+| CORE-AC-14 | NVENC API-to-output timing is recorded only for a matching frame index and is not described as pure GPU execution time | Packet adapter review and tests |
+| CORE-AC-15 | Internal packet queue wait is recorded from queue publication to broadcaster dequeue, separately from network transit | Packet adapter review and tests |
+| CORE-AC-16 | Aggregate host timing does not count as an independent stage when detailed stage telemetry is present | Classifier regression tests |
 
 ## 9. Rollout
 
