@@ -4,6 +4,10 @@ Notable repository changes are recorded here; entries do not imply unverified ru
 
 ## Unreleased
 
+### APD planning
+- Added a separate control-policy specification with evidence gates and a staged observe-only-to-opt-in rollout.
+- Added a GTX 1060 / T1600 hardware acceptance matrix and independent telemetry collection procedure.
+
 ### Syzygy Core / Adaptive Pipeline Director
 - Added rate-limited per-session structured pipeline diagnostics.
 - Added stable string names for bottleneck classifications and confidence levels.

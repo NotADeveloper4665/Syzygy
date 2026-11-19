@@ -37,6 +37,10 @@
 - [ ] Compare reports against independent host/client measurements on T1600.
 
 ## Milestone 3: reviewed control policy
+- [x] Specify evidence gates, actuator ownership, and rollout stages in APD-CONTROL-POLICY.md.
+- [ ] Implement recommendation-only output after telemetry coverage is sufficient.
+- [ ] Design per-session actuator interfaces; do not call engine controls yet.
+- [ ] Calibrate thresholds, hysteresis, dwell time, rollback, and manual override on T1600.
 
 - [ ] Specify control objectives and constraints separately.
 - [ ] Define per-session actuator interfaces.
