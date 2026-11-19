@@ -355,6 +355,8 @@ namespace stream {
     // Owned by this session; populated by the shared video broadcaster for
     // diagnostics. No control action consumes it in observe-only milestone 1.
     syzygy::core::telemetry_sample core_telemetry;
+    // Written only by the shared broadcaster; rate-limits per-session diagnostics.
+    std::chrono::steady_clock::time_point core_last_diagnostic_at {};
 
     safe::mail_t mail;
 
@@ -1416,6 +1418,23 @@ namespace stream {
         session->core_telemetry.observed_at = std::chrono::steady_clock::now();
         session->core_telemetry.host_pipeline_ms.reset();
         frame_header.frame_processing_latency = 0;
+      }
+
+      const auto diagnostic_now = std::chrono::steady_clock::now();
+      if (session->core_last_diagnostic_at.time_since_epoch().count() == 0 ||
+          diagnostic_now - session->core_last_diagnostic_at >= std::chrono::seconds(5)) {
+        const auto assessment = syzygy::core::assess_pipeline(session->core_telemetry, syzygy::core::telemetry_policy {}, diagnostic_now);
+        const auto measurement = [](const std::optional<double>& value) {
+          return value ? std::to_string(*value) : std::string("n/a");
+        };
+        BOOST_LOG(debug) << "Syzygy Core pipeline"
+                         << " classification=" << syzygy::core::to_string(assessment.classification)
+                         << " confidence=" << syzygy::core::to_string(assessment.certainty)
+                         << " host_pipeline_ms=" << measurement(session->core_telemetry.host_pipeline_ms)
+                         << " nvenc_api_output_ms=" << measurement(session->core_telemetry.encode_ms)
+                         << " send_queue_ms=" << measurement(session->core_telemetry.send_queue_ms)
+                         << " explanation=\"" << assessment.explanation << "\"";
+        session->core_last_diagnostic_at = diagnostic_now;
       }
 
       auto wan = session->config.monitor.wan;

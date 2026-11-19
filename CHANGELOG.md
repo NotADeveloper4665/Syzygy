@@ -4,6 +4,10 @@ Notable repository changes are recorded here; entries do not imply unverified ru
 
 ## Unreleased
 
+### Syzygy Core / Adaptive Pipeline Director
+- Added rate-limited per-session structured pipeline diagnostics.
+- Added stable string names for bottleneck classifications and confidence levels.
+
 ### Development process
 - Introduced specification-led development artifacts: requirements, design, task tracking, and verification.
 

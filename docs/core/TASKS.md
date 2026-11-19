@@ -30,7 +30,8 @@
 
 ## Milestone 2: observe-only diagnostics
 
-- [ ] Add structured per-session diagnostic output.
+- [x] Add structured per-session diagnostic output with a five-second per-session rate limit.
+- [ ] Expose classification and evidence in the host UI or a local diagnostics endpoint.
 - [ ] Expose classification and evidence in the host UI or a local diagnostics endpoint.
 - [ ] Add rate limiting and privacy review.
 - [ ] Compare reports against independent host/client measurements on T1600.

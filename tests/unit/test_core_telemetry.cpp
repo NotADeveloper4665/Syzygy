@@ -22,6 +22,12 @@ telemetry_sample baseline_sample(monotonic_clock::time_point now) {
 }
 }  // namespace
 
+TEST(CoreTelemetry, ClassificationsHaveStableDiagnosticNames) {
+  EXPECT_EQ(syzygy::core::to_string(bottleneck::encode_bound), "encode_bound");
+  EXPECT_EQ(syzygy::core::to_string(bottleneck::insufficient_data), "insufficient_data");
+  EXPECT_EQ(syzygy::core::to_string(syzygy::core::confidence::medium), "medium");
+}
+
 TEST(CoreTelemetry, MissingIsNotMeasuredZeroDoesNotClaimHealthy) {
   const auto now = monotonic_clock::now();
   auto sample = baseline_sample(now);

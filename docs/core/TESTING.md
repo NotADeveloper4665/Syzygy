@@ -20,6 +20,12 @@ The Linux workflow compiles and runs `tests/core_telemetry_smoke.cpp` directly w
 
 The full GoogleTest target remains a separate validation item; the RPM packaging job currently configures `BUILD_TESTS=OFF`.
 
+## Runtime diagnostics
+
+- Structured debug output is emitted per session no more often than every five seconds.
+- Output includes classification, confidence, aggregate host timing, NVENC API-to-output timing, queue wait, and explanation.
+- Missing values are rendered as unavailable; diagnostics never include pairing secrets or client identifiers.
+
 ## Build validation
 
 - New source files must compile in the normal server target and test target.

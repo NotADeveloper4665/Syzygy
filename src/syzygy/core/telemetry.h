@@ -3,6 +3,7 @@
 #include <chrono>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace syzygy::core {
@@ -69,6 +70,9 @@ struct pipeline_assessment {
   std::vector<std::string> evidence;
   bool observe_only {true};
 };
+
+std::string_view to_string(bottleneck value) noexcept;
+std::string_view to_string(confidence value) noexcept;
 
 bool valid_sample(const telemetry_sample& sample) noexcept;
 bool valid_policy(const telemetry_policy& policy) noexcept;

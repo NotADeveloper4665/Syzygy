@@ -19,6 +19,29 @@ bool elevated(const std::optional<double>& value, double threshold) {
 
 }  // namespace
 
+std::string_view to_string(bottleneck value) noexcept {
+  switch (value) {
+    case bottleneck::healthy: return "healthy";
+    case bottleneck::capture_bound: return "capture_bound";
+    case bottleneck::encode_bound: return "encode_bound";
+    case bottleneck::network_bound: return "network_bound";
+    case bottleneck::host_pipeline_pressure: return "host_pipeline_pressure";
+    case bottleneck::client_bound: return "client_bound";
+    case bottleneck::mixed: return "mixed";
+    case bottleneck::insufficient_data: return "insufficient_data";
+  }
+  return "unknown";
+}
+
+std::string_view to_string(confidence value) noexcept {
+  switch (value) {
+    case confidence::low: return "low";
+    case confidence::medium: return "medium";
+    case confidence::high: return "high";
+  }
+  return "unknown";
+}
+
 bool valid_sample(const telemetry_sample& sample) noexcept {
   return valid_duration(sample.capture_ms) &&
          valid_duration(sample.encode_ms) &&
