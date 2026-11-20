@@ -28,6 +28,8 @@ public:
     std::size_t per_session_bytes {8 * 1024 * 1024};
     std::size_t recovery_reserve_frames {2};
     std::size_t recovery_reserve_bytes {4 * 1024 * 1024};
+    std::size_t per_session_recovery_reserve_frames {1};
+    std::size_t per_session_recovery_reserve_bytes {512 * 1024};
     std::size_t quantum_bytes {64 * 1024};
   };
 
@@ -76,11 +78,13 @@ public:
            value.per_session_bytes <= value.global_bytes &&
            value.recovery_reserve_frames < value.global_frames &&
            value.recovery_reserve_bytes < value.global_bytes &&
+           value.per_session_recovery_reserve_frames < value.per_session_frames &&
+           value.per_session_recovery_reserve_bytes < value.per_session_bytes &&
            value.quantum_bytes > 0;
   }
 
   bool register_session(session_key key, std::size_t weight = 1) {
-    if (key.id == 0 || key.generation == 0 || weight == 0) {
+    if (key.id == 0 || key.generation == 0 || weight == 0 || weight > 16) {
       return false;
     }
     std::lock_guard lock {mutex_};
@@ -135,8 +139,10 @@ public:
       return admission::capacity_exceeded;
     }
 
-    const auto session_frame_limit = limits_.per_session_frames;
-    const auto session_byte_limit = limits_.per_session_bytes;
+    const auto session_frame_limit = keyframe ? limits_.per_session_frames :
+      limits_.per_session_frames - limits_.per_session_recovery_reserve_frames;
+    const auto session_byte_limit = keyframe ? limits_.per_session_bytes :
+      limits_.per_session_bytes - limits_.per_session_recovery_reserve_bytes;
     const auto normal_global_frames = limits_.global_frames - limits_.recovery_reserve_frames;
     const auto normal_global_bytes = limits_.global_bytes - limits_.recovery_reserve_bytes;
 
