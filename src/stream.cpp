@@ -1342,10 +1342,6 @@ namespace stream {
           // the RTT estimator update. Only a new token is a fresh observation;
           // otherwise the old cached value would appear fresh on every poll.
           const auto rtt_sample_time = peer->lastReceiveTime;
-          if (rtt_sample_time == 0 || rtt_sample_time == session->core_last_enet_rtt_receive_time) {
-            continue;
-          }
-
           const auto rtt_ms = peer->roundTripTime;
           const auto variance_ms = peer->roundTripTimeVariance;
           if (rtt_ms == 0 || rtt_ms > 5000 || variance_ms > 5000) {
@@ -1353,7 +1349,10 @@ namespace stream {
           }
 
           std::lock_guard<std::mutex> telemetry_lock {session->core_telemetry_mutex};
-          session->core_last_enet_rtt_receive_time = rtt_sample_time;
+          if (!syzygy::core::accept_enet_rtt_sample_token(
+                  rtt_sample_time, session->core_last_enet_rtt_receive_time)) {
+            continue;
+          }
           session->core_telemetry.network_rtt_ms = static_cast<double>(rtt_ms);
           session->core_telemetry.network_rtt_variance_ms = static_cast<double>(variance_ms);
           session->core_telemetry.network_observed_at = observed_at;
