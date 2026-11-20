@@ -265,3 +265,13 @@ are complete FEC blocks rather than whole frames. It cannot safely interleave
 blocks until the packetizer has produced a complete block and the protocol
 ordering/recovery rules are verified. The runtime must not split or reorder
 within a block.
+
+
+The pipeline primitives now also include a **session lifetime drain fence**:
+`session_lifetime` issues generation-bound leases for every queued/in-flight owner.
+Teardown closes admission first, then waits for outstanding leases to drain
+before releasing session-owned cipher and buffer state. The smoke test holds
+an in-flight lease across teardown and verifies new leases are rejected until
+the original owner releases. This is still an integration primitive; encoder,
+FEC-block and sender jobs must actually carry leases for the fence to protect
+the runtime.
