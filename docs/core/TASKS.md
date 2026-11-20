@@ -56,14 +56,17 @@ Specification: [LOW-LATENCY-PIPELINE-SPEC.md](LOW-LATENCY-PIPELINE-SPEC.md)
 - [ ] Measure conversion duration separately from encoder submission/output.
 - [ ] Measure encoder in-flight count and output age.
 - [ ] Measure encoded packet queue depth, oldest packet age and per-session occupancy.
+- [x] Add standalone wire-cost estimator including parity, encryption and IP overhead; connect it to DRR item byte costs during runtime integration.
 - [ ] Measure packetization/FEC, sender wait, socket submission and first-packet time.
+- [x] Add standalone socket error classification for local backpressure, MTU failure and route/peer failure.
 - [ ] Record dropped/replaced frames by reason, frame type and recovery action.
 - [ ] Add deterministic tests for session isolation and monotonic frame/packet numbers.
 
 ### Phase B — explicit bounded frame admission
 - [x] Implement a standalone bounded per-session DRR scheduler primitive with byte/frame limits, queue-age accounting, recovery reserves, FIFO preservation and generation-safe teardown; unit tests added.
 - [ ] Wire the scheduler into the encoder publication path and replace the shared overflow-clearing video queue.
-- [ ] Track encoder, packetizer and sender occupancy per session.
+- [x] Add move-only aggregate frame/byte reservation primitive spanning pipeline stages.
+- [ ] Wire aggregate reservations into encoder, packetizer and sender ownership.
 - [ ] Establish a small bounded picture budget based on measured backend depth.
 - [ ] Apply freshness dropping only before encode or after protocol-safe reference invalidation.
 - [ ] Reserve capacity for IDR and recovery frames.
@@ -71,11 +74,13 @@ Specification: [LOW-LATENCY-PIPELINE-SPEC.md](LOW-LATENCY-PIPELINE-SPEC.md)
 
 ### Phase C — split packetization from paced sending
 - [ ] Design a per-session bounded packetizer-to-sender handoff.
+- [x] Specify FEC-block scheduling units so DRR can switch sessions only at complete block boundaries.
 - [ ] Hand off FEC blocks as soon as safe to the paced sender.
 - [ ] Keep socket pacing off the capture/encoder worker.
 - [ ] Preserve frame/block order, FEC indices, packet sequence and encryption IV counters.
 - [ ] Add fair scheduling across sessions.
 - [ ] Define recovery for partially delivered frames.
+- [ ] Replace raw session pointer packet channel data with a lifetime-safe session handle/generation and drain in-flight owners on teardown.
 
 ### Phase D — early slice/block delivery
 - [ ] Verify Linux NVENC and FFmpeg slice-output support and buffer lifetimes.
@@ -86,6 +91,7 @@ Specification: [LOW-LATENCY-PIPELINE-SPEC.md](LOW-LATENCY-PIPELINE-SPEC.md)
 
 ### Phase E — GPU-resident capture and conversion
 - [ ] Trace Linux NVIDIA NVENC and VAAPI surface paths.
+- [x] Add explicit GPU completion-gate ownership primitive; backend fence/callback wiring remains outstanding.
 - [ ] Verify DMA-BUF/CUDA/VAAPI interop and synchronization.
 - [ ] Remove only proven redundant readbacks/copies.
 - [ ] Retain tested fallbacks for unsupported formats and devices.
