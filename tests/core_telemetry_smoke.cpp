@@ -75,8 +75,21 @@ int main() {
   sample.packet_loss_per_mille = 50.0;
   sample.loss_observed_at = now;
   auto loss = syzygy::core::assess_pipeline(sample, policy, now);
-  assert(loss.classification == bottleneck::network_bound);
+  // A recovery-triggered FEC block is diagnostic evidence, not a stream-wide
+  // loss rate and cannot independently elevate the network classification.
+  assert(loss.classification == bottleneck::healthy);
 
+  sample.client_media_jitter_ms.reset();
+  sample.media_jitter_observed_at = {};
+  sample.network_rtt_ms.reset();
+  sample.network_rtt_variance_ms.reset();
+  sample.network_observed_at = {};
+  auto fec_only = syzygy::core::assess_pipeline(sample, policy, now);
+  assert(fec_only.classification == bottleneck::insufficient_data);
+
+  sample.network_rtt_ms = 10.0;
+  sample.network_rtt_variance_ms = 1.0;
+  sample.network_observed_at = now;
   sample.packet_loss_per_mille.reset();
   sample.client_decode_ms = 12.0;
   sample.client_presentation_ms = 2.0;
