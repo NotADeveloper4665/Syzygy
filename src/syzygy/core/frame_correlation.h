@@ -18,6 +18,7 @@ struct frame_timing_record {
   std::int64_t pts {};
   std::chrono::steady_clock::time_point submitted_at {};
   std::optional<std::chrono::steady_clock::time_point> frame_timestamp;
+  std::optional<std::chrono::steady_clock::time_point> core_frame_timestamp;
   std::optional<double> capture_ms;
   std::optional<double> capture_backend_ms;
   std::optional<double> conversion_ms;
