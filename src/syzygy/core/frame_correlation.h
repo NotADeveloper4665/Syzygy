@@ -7,6 +7,7 @@
 #include <deque>
 #include <map>
 #include <optional>
+#include <utility>
 
 namespace syzygy::core {
 
@@ -29,6 +30,8 @@ public:
   }
 
   pts_timing_correlator(const pts_timing_correlator&) = delete;
+  pts_timing_correlator(pts_timing_correlator&&) noexcept = default;
+  pts_timing_correlator& operator=(pts_timing_correlator&&) noexcept = default;
   pts_timing_correlator& operator=(const pts_timing_correlator&) = delete;
 
   bool remember(frame_timing_record record) {
@@ -37,7 +40,7 @@ public:
     }
 
     const auto pts = record.pts;
-    const auto [_, inserted] = pending_.emplace(pts, std::move(record));
+    const bool inserted = pending_.emplace(pts, std::move(record)).second;
     if (!inserted) {
       return false;
     }
@@ -82,7 +85,7 @@ public:
   }
 
 private:
-  const std::size_t max_pending_;
+  std::size_t max_pending_;
   std::map<std::int64_t, frame_timing_record> pending_;
   std::deque<std::int64_t> insertion_order_;
   std::uint64_t evictions_ {};
