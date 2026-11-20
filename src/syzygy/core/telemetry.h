@@ -11,6 +11,16 @@ namespace syzygy::core {
 
 using monotonic_clock = std::chrono::steady_clock;
 
+// ENet's lastReceiveTime is a service-clock token updated with acknowledged
+// packets. Do not refresh the Core sample timestamp when polling the same token.
+inline bool accept_enet_rtt_sample_token(
+    std::uint32_t sample_token,
+    std::uint32_t& last_sample_token) noexcept {
+  if (sample_token == 0 || sample_token == last_sample_token) return false;
+  last_sample_token = sample_token;
+  return true;
+}
+
 struct telemetry_sample {
   // Host measurements are refreshed when an encoded frame is observed by the
   // broadcaster. Network, loss, and client measurements have independent
