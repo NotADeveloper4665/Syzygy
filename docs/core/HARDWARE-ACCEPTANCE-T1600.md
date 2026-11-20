@@ -80,6 +80,8 @@ If a requested mode is unsupported, record the failure and actual negotiated mod
 - V2 client media jitter remains distinct from ENet RTT variance and expires independently.
 - Queue wait is distinguishable from socket/network delivery.
 - Control RTT/variance is labeled as ENet control-path telemetry, not one-way media latency.
+- RTT/variance freshness advances only on a new acknowledged ENet sample; repeatedly polling cached values must not keep old telemetry fresh.
+- Recovery-triggered FEC block loss is shown as a conditional block sample and cannot alone label the session network-bound.
 - FEC loss uses the reported block denominator; no report is not treated as zero.
 - Client decode/presentation is unavailable unless an explicit compatible sender is used.
 - No sample from one session affects another session.
