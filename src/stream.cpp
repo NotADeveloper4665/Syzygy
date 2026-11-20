@@ -970,6 +970,9 @@ namespace stream {
       const auto observed_at = std::chrono::steady_clock::now();
       {
         std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
+        // A legacy count/time report has no packet denominator. Clear any
+        // previous FEC rate so this fresh legacy timestamp cannot refresh it.
+        session->core_telemetry.packet_loss_per_mille.reset();
         session->core_telemetry.packet_loss_count = stats->loss_count;
         session->core_telemetry.packet_loss_interval_ms = static_cast<double>(stats->interval_ms);
         session->core_telemetry.loss_observed_at = observed_at;
@@ -997,8 +1000,11 @@ namespace stream {
       const auto key = std::make_pair(report->frame_index, report->block_index);
       {
         std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
-        if (std::find(session->core_fec_report_keys.begin(), session->core_fec_report_keys.end(), key) !=
-            session->core_fec_report_keys.end()) {
+        if (session->core_last_sent_frame_index == 0 ||
+            report->frame_index > session->core_last_sent_frame_index ||
+            session->core_last_sent_frame_index - report->frame_index > 512 ||
+            std::find(session->core_fec_report_keys.begin(), session->core_fec_report_keys.end(), key) !=
+                session->core_fec_report_keys.end()) {
           return;
         }
         session->core_fec_report_keys.push_back(key);
@@ -1023,12 +1029,12 @@ namespace stream {
 
     // Optional Syzygy client feedback extension. Existing Moonlight clients do
     // not send this type; strict magic/version/length checks keep it inert
-    // until a client implements the documented v1 contract.
+    // until a client implements the documented v1 or v2 contract.
     constexpr std::uint16_t SYZYGY_CLIENT_TELEMETRY_PTYPE = 0x5506;
     server->map(SYZYGY_CLIENT_TELEMETRY_PTYPE, [&](session_t *session, const std::string_view &payload) {
       const auto feedback = syzygy::core::parse_client_telemetry(payload);
       if (!feedback) {
-        BOOST_LOG(verbose) << "Ignoring malformed Syzygy client telemetry v1 payload";
+        BOOST_LOG(verbose) << "Ignoring malformed Syzygy client telemetry v1/v2 payload";
         return;
       }
 
