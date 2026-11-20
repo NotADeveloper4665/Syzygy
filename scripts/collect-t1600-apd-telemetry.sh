@@ -82,7 +82,7 @@ else
   (
     while true; do
       date --iso-8601=seconds
-      ps -eo pid,comm,%cpu,%mem,rss --sort=-%cpu | head -n 16
+      ps -eo pid,comm,%cpu,%mem,rss --sort=-%cpu | sed -n '1,16p'
       sleep 1
     done
   ) > "$output_dir/process.csv" 2>&1 &
