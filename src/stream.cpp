@@ -1369,6 +1369,9 @@ namespace stream {
       } else {
         session->core_telemetry.send_queue_ms.reset();
       }
+      // Capture age is matched to the encoded frame by PTS/frame index; it includes
+      // capture-to-encoder mailbox wait and is not pure capture-backend execution time.
+      session->core_telemetry.capture_ms = packet->capture_ms;
       // NVENC provides a verified frame-index-matched API-to-output interval.
       // Other encoder backends remain unavailable rather than being guessed.
       session->core_telemetry.encode_ms = packet->encode_ms;
@@ -1430,6 +1433,7 @@ namespace stream {
         BOOST_LOG(debug) << "Syzygy Core pipeline"
                          << " classification=" << syzygy::core::to_string(assessment.classification)
                          << " confidence=" << syzygy::core::to_string(assessment.certainty)
+                         << " capture_to_encoder_ms=" << measurement(session->core_telemetry.capture_ms)
                          << " host_pipeline_ms=" << measurement(session->core_telemetry.host_pipeline_ms)
                          << " nvenc_api_output_ms=" << measurement(session->core_telemetry.encode_ms)
                          << " send_queue_ms=" << measurement(session->core_telemetry.send_queue_ms)
