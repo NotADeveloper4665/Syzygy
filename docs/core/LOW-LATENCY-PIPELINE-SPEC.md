@@ -58,13 +58,17 @@ The capture mailbox already solves one major Rubylight problem. The largest stru
 
 ### Phase A — Instrument before changing scheduling
 
-- [ ] Measure capture publication-to-encoder-consumption age per session.
-- [ ] Measure conversion duration separately from encoder submission/output.
-- [ ] Measure encoder in-flight count and output age, including frame-index correlation.
+- [x] Measure capture timestamp-to-encoder-consumption age per session, matched to NVENC frame index or FFmpeg PTS; this includes mailbox wait.
+- [x] Measure Linux KMS/X11 capture callback duration separately from capture age.
+- [x] Measure conversion duration separately from encoder submission/output.
+- [x] Measure NVENC API-to-matching-output and FFmpeg successful-send-to-matching-PTS-output duration.
+- [ ] Measure encoder in-flight count and output age, including backend surface ownership.
 - [ ] Measure encoded packet queue depth, oldest packet age and per-session occupancy.
 - [ ] Measure packetization/FEC time, sender wait time, socket submission time and frame first-packet time.
+- [x] Add control-channel RTT/variance and client FEC/legacy loss feedback to Core with source limitations documented.
+- [x] Add a strict optional client decode/presentation feedback receiver contract; no client sender is included.
 - [ ] Record dropped/replaced frames by reason, frame type and recovery action.
-- [ ] Add counters and deterministic tests for session isolation and monotonic frame/packet numbers.
+- [ ] Add multi-session stress tests for isolation and monotonic frame/packet numbers.
 
 Acceptance: diagnostics identify where host time accumulates without changing stream behavior.
 
@@ -112,7 +116,8 @@ Acceptance: GPU trace confirms no unnecessary CPU readback on the supported path
 
 ### Phase F — Pacing and APD integration
 
-- [ ] Feed verified queue age, socket outcomes, RTT/jitter and loss-rate measurements into Core telemetry.
+- [x] Feed control-channel RTT/variance and FEC/legacy loss feedback into Core telemetry; media-path jitter and socket outcomes remain pending.
+- [x] Define the optional client decode/presentation receiver; client sender validation remains pending.
 - [ ] Reuse the existing WAN controller and expose its decisions as evidence.
 - [ ] Add APD recommendation-only output only after telemetry coverage is adequate.
 - [ ] Add hysteresis, dwell, manual override and rollback before any future actuator.
@@ -316,3 +321,18 @@ broadcasters remain. The generic video queue's overflow behavior still needs
 a protocol-safe admission policy. Raw session pointers remain in control-server
 lookup/callback plumbing; those are not media packet payload ownership and
 need a separate control-lifecycle audit.
+
+
+## 13. Verified telemetry progress (2026-11-20)
+
+The current Syzygy Core branch now has these observe-only adapters:
+
+- Linux KMS and X11 snapshot callbacks expose capture callback duration separately from capture timestamp-to-encoder age.
+- Async and synchronized encode paths measure image conversion around `session->convert()`.
+- NVENC timing remains frame-index matched. AVCodec timing now uses a bounded 256-entry per-session PTS registry; delayed/reordered output is matched by PTS, and unknown/evicted PTS receives no current-frame metadata.
+- Legacy loss statistics are parsed at their exact 32-byte size and retained as raw count/interval. No denominator is invented.
+- Moonlight `SS_FRAME_FEC_STATUS` (`0x5502`) is validated and deduplicated per frame/block. The measured per-mille value is limited to reported FEC-recovery blocks.
+- ENet control RTT and RTT variance are sampled per session using a low-rate transport ping. RTT variance is explicitly a control-path variation proxy, not media-packet jitter.
+- An optional Syzygy client telemetry v1 receiver is defined at `0x5506`. It validates client decode, presentation-queue, and render averages against a recent host frame index. No client sender is included, so those values remain unavailable on ordinary clients.
+
+All samples remain session-owned and timestamped by source group. The APD classifier is still observe-only. The shared global `video_packets` queue, single packetizer/sender thread, packetization/FEC timing, socket submission timing, media-path jitter, and encoder in-flight accounting remain open work. Physical T1600 acceptance has not been run.
