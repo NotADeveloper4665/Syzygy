@@ -979,6 +979,7 @@ namespace stream {
         // previous FEC rate so this fresh legacy timestamp cannot refresh it.
         session->core_telemetry.packet_loss_per_mille.reset();
         session->core_telemetry.packet_loss_count = stats->loss_count;
+        session->core_telemetry.packet_loss_total_data_packets.reset();
         session->core_telemetry.packet_loss_interval_ms = static_cast<double>(stats->interval_ms);
         session->core_telemetry.loss_observed_at = observed_at;
       }
@@ -1017,6 +1018,7 @@ namespace stream {
         }
 
         session->core_telemetry.packet_loss_count = report->lost_data_packets;
+        session->core_telemetry.packet_loss_total_data_packets = report->total_data_packets;
         session->core_telemetry.packet_loss_per_mille = report->loss_per_mille;
         session->core_telemetry.packet_loss_interval_ms.reset();
         session->core_telemetry.loss_observed_at = observed_at;
@@ -1647,6 +1649,7 @@ namespace stream {
                          << " client_media_interarrival_jitter_ms=" << measurement(telemetry_snapshot.client_media_jitter_ms)
                          << " fec_recovery_block_loss_per_mille=" << measurement(telemetry_snapshot.packet_loss_per_mille)
                          << " loss_count=" << (telemetry_snapshot.packet_loss_count ? std::to_string(*telemetry_snapshot.packet_loss_count) : "n/a")
+                         << " loss_denominator=" << (telemetry_snapshot.packet_loss_total_data_packets ? std::to_string(*telemetry_snapshot.packet_loss_total_data_packets) : "n/a")
                          << " loss_interval_ms=" << measurement(telemetry_snapshot.packet_loss_interval_ms)
                          << " client_decode_ms=" << measurement(telemetry_snapshot.client_decode_ms)
                          << " client_presentation_queue_ms=" << measurement(telemetry_snapshot.client_presentation_queue_ms)
