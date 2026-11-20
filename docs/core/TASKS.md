@@ -32,21 +32,70 @@
 
 - [x] Add structured per-session diagnostic output with a five-second per-session rate limit.
 - [ ] Expose classification and evidence in the host UI or a local diagnostics endpoint.
-- [ ] Expose classification and evidence in the host UI or a local diagnostics endpoint.
 - [ ] Add rate limiting and privacy review.
 - [ ] Compare reports against independent host/client measurements on T1600.
 
 ## Milestone 3: reviewed control policy
+
 - [x] Specify evidence gates, actuator ownership, and rollout stages in APD-CONTROL-POLICY.md.
 - [ ] Implement recommendation-only output after telemetry coverage is sufficient.
 - [ ] Design per-session actuator interfaces; do not call engine controls yet.
 - [ ] Calibrate thresholds, hysteresis, dwell time, rollback, and manual override on T1600.
-
 - [ ] Specify control objectives and constraints separately.
 - [ ] Define per-session actuator interfaces.
 - [ ] Define hysteresis, minimum dwell time, rollback, and manual override.
 - [ ] Reuse existing engine controls where safe; do not duplicate WAN bitrate/FEC logic.
 - [ ] Keep automatic actions disabled by default until hardware validation.
+
+## Milestone 4: low-latency pipeline adaptation (Rubylight study)
+
+Specification: [LOW-LATENCY-PIPELINE-SPEC.md](LOW-LATENCY-PIPELINE-SPEC.md)
+
+### Phase A — instrument before changing scheduling
+- [ ] Measure capture publication-to-encoder-consumption age per session.
+- [ ] Measure conversion duration separately from encoder submission/output.
+- [ ] Measure encoder in-flight count and output age.
+- [ ] Measure encoded packet queue depth, oldest packet age and per-session occupancy.
+- [ ] Measure packetization/FEC, sender wait, socket submission and first-packet time.
+- [ ] Record dropped/replaced frames by reason, frame type and recovery action.
+- [ ] Add deterministic tests for session isolation and monotonic frame/packet numbers.
+
+### Phase B — explicit bounded frame admission
+- [ ] Replace implicit global queue-overflow clearing with explicit admission outcomes.
+- [ ] Track encoder, packetizer and sender occupancy per session.
+- [ ] Establish a small bounded picture budget based on measured backend depth.
+- [ ] Apply freshness dropping only before encode or after protocol-safe reference invalidation.
+- [ ] Reserve capacity for IDR and recovery frames.
+- [ ] Prove one congested session cannot consume another session's budget.
+
+### Phase C — split packetization from paced sending
+- [ ] Design a per-session bounded packetizer-to-sender handoff.
+- [ ] Hand off FEC blocks as soon as safe to the paced sender.
+- [ ] Keep socket pacing off the capture/encoder worker.
+- [ ] Preserve frame/block order, FEC indices, packet sequence and encryption IV counters.
+- [ ] Add fair scheduling across sessions.
+- [ ] Define recovery for partially delivered frames.
+
+### Phase D — early slice/block delivery
+- [ ] Verify Linux NVENC and FFmpeg slice-output support and buffer lifetimes.
+- [ ] Implement early slice delivery only where the backend supports safe ownership.
+- [ ] Otherwise use early FEC-block delivery from complete encoded frames.
+- [ ] Keep small frames whole when early handoff overhead is not worthwhile.
+- [ ] Benchmark first-packet time, full-frame time, CPU cost and loss recovery.
+
+### Phase E — GPU-resident capture and conversion
+- [ ] Trace Linux NVIDIA NVENC and VAAPI surface paths.
+- [ ] Verify DMA-BUF/CUDA/VAAPI interop and synchronization.
+- [ ] Remove only proven redundant readbacks/copies.
+- [ ] Retain tested fallbacks for unsupported formats and devices.
+- [ ] Validate HDR, 10-bit, chroma formats and device-loss teardown.
+
+### Phase F — pacing and APD integration
+- [ ] Feed verified queue age, socket outcomes, RTT/jitter and loss rate into Core.
+- [ ] Reuse existing WAN pacing and FEC control; do not add a second controller.
+- [ ] Add recommendation-only APD output after telemetry coverage is sufficient.
+- [ ] Define hysteresis, dwell, override and rollback before any actuator.
+- [ ] Keep automatic actions disabled by default.
 
 ## Future Core capabilities
 
