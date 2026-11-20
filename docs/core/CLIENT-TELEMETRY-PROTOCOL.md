@@ -60,6 +60,6 @@ The host stores decode, presentation-queue, render, and combined presentation va
 
 ## Compatibility and current limitation
 
-Existing Moonlight clients do not send this Syzygy-specific type. The host receiver is inert unless a client explicitly sends a valid v1 or v2 message. No client-side sender or negotiation change is included in this repository, so decode/presentation feedback and media jitter remain unavailable on ordinary clients until a compatible sender is implemented and validated.
+The standard Moonlight `0x0204` Frame Stats message is marked unused in moonlight-common-c, so it is not treated as a source of decode/presentation timings. Existing Moonlight clients do not send this Syzygy-specific type. The host receiver is inert unless a client explicitly sends a valid v1 or v2 message. No client-side sender or negotiation change is included in this repository, so decode/presentation feedback and media jitter remain unavailable on ordinary clients until a compatible sender is implemented and validated.
 
 The standard Moonlight `SS_FRAME_FEC_STATUS` message at `0x5502` remains separate and supplies per-FEC-block data-shard loss for blocks that required recovery. It is not a continuous stream-wide loss estimate.
