@@ -10,7 +10,7 @@ int main() {
   using key_t = scheduler_t::session_key;
 
   scheduler_t::limits limits;
-  limits.global_frames = 4;
+  limits.global_frames = 5;
   limits.global_bytes = 1000;
   limits.per_session_frames = 4;
   limits.per_session_bytes = 1000;
