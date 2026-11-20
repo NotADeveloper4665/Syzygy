@@ -302,6 +302,9 @@ is carried through either media packet queue.
   then waits for all queued/in-flight video and audio packet leases to drain.
 - Broadcast shutdown stops and clears the shared media queues, releasing any
   queued packet leases whose consumers will no longer run.
+- An audio encoder failure now exits only that encoder worker; it no longer
+  stops the process-wide audio queue and strands other sessions' queued leases.
+  Only broadcast shutdown stops/clears that shared queue.
 
 Focused unit tests cover audio packet owner retention after dequeue and lease
 release when the stopped queue is cleared. The complete Linux package build
