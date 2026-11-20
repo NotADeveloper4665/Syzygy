@@ -1267,6 +1267,7 @@ namespace platf {
       }
 
       capture_e snapshot(const pull_free_image_cb_t &pull_free_image_cb, std::shared_ptr<platf::img_t> &img_out, std::chrono::milliseconds timeout, bool cursor) {
+        const auto capture_started_at = std::chrono::steady_clock::now();
         file_t fb_fd[4];
 
         egl::surface_descriptor_t sd;
@@ -1305,6 +1306,8 @@ namespace platf {
           blend_cursor(*img_out);
         }
 
+        img_out->capture_duration_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - capture_started_at).count();
         return capture_e::ok;
       }
 
@@ -1417,6 +1420,7 @@ namespace platf {
       }
 
       capture_e snapshot(const pull_free_image_cb_t &pull_free_image_cb, std::shared_ptr<platf::img_t> &img_out, std::chrono::milliseconds /* timeout */, bool cursor) {
+        const auto capture_started_at = std::chrono::steady_clock::now();
         file_t fb_fd[4];
 
         if (!pull_free_image_cb(img_out)) {
@@ -1455,6 +1459,8 @@ namespace platf {
         for (auto x = 0; x < 4; ++x) {
           fb_fd[x].release();
         }
+        img->capture_duration_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - capture_started_at).count();
         return capture_e::ok;
       }
 
