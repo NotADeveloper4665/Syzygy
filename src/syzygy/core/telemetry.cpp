@@ -66,6 +66,7 @@ bool valid_sample(const telemetry_sample& sample) noexcept {
          valid_duration(sample.host_pipeline_ms) &&
          valid_duration(sample.network_rtt_ms) &&
          valid_duration(sample.network_rtt_variance_ms) &&
+         valid_duration(sample.client_media_jitter_ms) &&
          valid_loss(sample.packet_loss_per_mille) &&
          valid_interval(sample.packet_loss_interval_ms) &&
          valid_duration(sample.client_decode_ms) &&
@@ -88,6 +89,7 @@ bool valid_policy(const telemetry_policy& policy) noexcept {
          valid_threshold(policy.host_pipeline_threshold_ms) &&
          valid_threshold(policy.network_rtt_threshold_ms) &&
          valid_threshold(policy.network_rtt_variance_threshold_ms) &&
+         valid_threshold(policy.media_jitter_threshold_ms) &&
          valid_threshold(policy.packet_loss_threshold_per_mille, 1000.0) &&
          valid_threshold(policy.client_decode_threshold_ms) &&
          valid_threshold(policy.client_presentation_threshold_ms) &&
@@ -122,6 +124,8 @@ pipeline_assessment assess_pipeline(
 
   const bool host_fresh = host_has_data && fresh(sample.observed_at, now, policy.freshness_window);
   const bool network_fresh = network_has_data && fresh(sample.network_observed_at, now, policy.freshness_window);
+  const bool media_jitter_fresh = sample.client_media_jitter_ms.has_value() &&
+      fresh(sample.media_jitter_observed_at, now, policy.freshness_window);
   const bool loss_fresh = loss_has_data && fresh(sample.loss_observed_at, now, policy.freshness_window);
   const bool client_fresh = client_has_data && fresh(sample.client_observed_at, now, policy.freshness_window);
 
@@ -130,6 +134,7 @@ pipeline_assessment assess_pipeline(
   const bool encode_observed = host_fresh && sample.encode_ms.has_value();
   const bool sender_queue_observed = host_fresh && sample.send_queue_ms.has_value();
   const bool network_observed = (network_fresh && (sample.network_rtt_ms || sample.network_rtt_variance_ms)) ||
+                                (media_jitter_fresh && sample.client_media_jitter_ms.has_value()) ||
                                 (loss_fresh && sample.packet_loss_per_mille.has_value());
   const bool client_observed = client_fresh && client_has_data;
 
@@ -149,6 +154,7 @@ pipeline_assessment assess_pipeline(
   const bool network =
       (network_fresh && (elevated(sample.network_rtt_ms, policy.network_rtt_threshold_ms) ||
                          elevated(sample.network_rtt_variance_ms, policy.network_rtt_variance_threshold_ms))) ||
+      (media_jitter_fresh && elevated(sample.client_media_jitter_ms, policy.media_jitter_threshold_ms)) ||
       (loss_fresh && elevated(sample.packet_loss_per_mille, policy.packet_loss_threshold_per_mille));
   const bool host_pipeline_elevated = host_fresh && elevated(sample.host_pipeline_ms, policy.host_pipeline_threshold_ms);
   const bool client = client_observed &&
@@ -200,6 +206,9 @@ pipeline_assessment assess_pipeline(
   if (sender_queue) result.evidence.emplace_back("Internal encoded-packet queue wait crossed its configured threshold; this is host sender pressure, not network transit.");
   if (network_fresh && (sample.network_rtt_ms || sample.network_rtt_variance_ms)) {
     result.evidence.emplace_back("ENet control-channel RTT/variance telemetry is fresh; variance is a path-variation proxy, not media-packet jitter.");
+  }
+  if (media_jitter_fresh && sample.client_media_jitter_ms) {
+    result.evidence.emplace_back("Client-reported RTP inter-arrival jitter (RFC 3550) is fresh; it is distinct from ENet control RTT variance.");
   }
   if (loss_fresh && sample.packet_loss_per_mille) {
     result.evidence.emplace_back("Client FEC report measured data-shard loss before recovery for a reported block; no report means unknown, not zero.");
