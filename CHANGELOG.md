@@ -32,3 +32,6 @@ Notable repository changes are recorded here; entries do not imply unverified ru
 - Added a separate combined host-pipeline pressure classification that does not mislabel the aggregate as capture or encode latency.
 - Added a telemetry provenance registry and a standalone Core telemetry smoke test to Linux CI.
 - Automatic tuning remains disabled; packet-loss count/time feedback is not treated as a loss rate.
+- ENet RTT/variance freshness now advances only on a new acknowledged-packet sample, preventing repeated polling of cached values from masking stale network telemetry.
+- Recovery-triggered FEC block loss remains conditional diagnostic evidence and cannot independently classify a session as network-bound.
+- Structured diagnostics now include client media jitter, FEC recovery-block loss, legacy loss count/interval, and separate client decode, presentation-queue, and render measurements.
