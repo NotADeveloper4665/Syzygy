@@ -21,6 +21,13 @@ int main() {
   assert(syzygy::core::accept_enet_rtt_sample_token(101, last_enet_sample));
   assert(syzygy::core::accept_enet_rtt_sample_token(1, last_enet_sample)); // service-clock wrap
   telemetry_policy policy;
+  telemetry_sample invalid_loss;
+  invalid_loss.packet_loss_count = 3;
+  invalid_loss.packet_loss_total_data_packets = 2;
+  assert(!syzygy::core::valid_sample(invalid_loss));
+  invalid_loss.packet_loss_count = 2;
+  assert(syzygy::core::valid_sample(invalid_loss));
+
   telemetry_sample sample;
   sample.observed_at = now;
   sample.host_pipeline_ms = 24.0;
