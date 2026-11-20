@@ -20,12 +20,14 @@
 - [x] Map existing frame timestamps and broadcaster processing-latency instrumentation to a per-session combined host-pipeline measurement.
 - [x] Add per-session NVENC API-to-matching-output timing with explicit driver/API-wait semantics.
 - [x] Add per-session internal packet queue-wait timing from publication to broadcaster dequeue.
-- [ ] Add per-session capture timing only after platform callback boundaries are verified.
-- [ ] Add AVCodec/FFmpeg encode timing after delayed/reordered outputs are frame-correlated safely.
-- [ ] Parse existing client feedback without treating loss counts as a loss rate.
-- [x] Document source, units, timing boundary, and freshness for the combined host-pipeline adapter.
-- [ ] Document sampling interval and source for each future adapter.
-- [ ] Add adapter-level tests, including session-isolation and missing-timestamp behavior.
+- [x] Add per-session capture-to-encoder age and Linux KMS/X11 capture callback duration.
+- [x] Add conversion duration around async and synchronized `session->convert()` calls.
+- [x] Add NVENC and AVCodec/FFmpeg encode timing; FFmpeg outputs are correlated through a bounded PTS registry.
+- [x] Parse Moonlight FEC status and legacy loss feedback; preserve legacy count/time without inventing a rate.
+- [x] Add per-session ENet control RTT and RTT-variance sampling with a one-second transport ping.
+- [x] Add strict host receiver/parser for optional Syzygy client telemetry v1; a client sender remains outside this repository.
+- [x] Document source, units, timing boundary, freshness, and limitations for each wired adapter.
+- [x] Add PTS-correlation and feedback-parser smoke tests; session-isolation stress and full hardware validation remain pending.
 - [x] Prevent aggregate host-pipeline timing from being counted as a second independent bottleneck alongside detailed stage metrics.
 
 ## Milestone 2: observe-only diagnostics
@@ -53,7 +55,8 @@ Specification: [LOW-LATENCY-PIPELINE-SPEC.md](LOW-LATENCY-PIPELINE-SPEC.md)
 
 ### Phase A — instrument before changing scheduling
 - [x] Measure capture timestamp-to-encoder-consumption age per session, matched to encoded output by PTS/frame index; it includes mailbox wait, not capture-backend execution.
-- [ ] Measure conversion duration separately from encoder submission/output.
+- [x] Measure Linux KMS/X11 capture callback duration separately; other backends remain unavailable.
+- [x] Measure conversion duration separately from encoder submission/output.
 - [ ] Measure encoder in-flight count and output age.
 - [ ] Measure encoded packet queue depth, oldest packet age and per-session occupancy.
 - [x] Add standalone wire-cost estimator including parity, encryption and IP overhead; connect it to DRR item byte costs during runtime integration.
