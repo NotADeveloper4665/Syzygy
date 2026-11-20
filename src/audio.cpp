@@ -83,7 +83,7 @@ namespace audio {
     },
   };
 
-  void encodeThread(sample_queue_t samples, config_t config, void *channel_data) {
+  void encodeThread(sample_queue_t samples, config_t config, syzygy::core::session_handle session_owner) {
     auto packets = mail::man->queue<packet_t>(mail::audio_packets);
     auto stream = stream_configs[map_stream(config.channels, config.flags[config_t::HIGH_QUALITY])];
     if (config.flags[config_t::CUSTOM_SURROUND_PARAMS]) {
@@ -112,6 +112,12 @@ namespace audio {
 
     auto frame_size = config.packetDuration * stream.sampleRate / 1000;
     while (auto sample = samples->pop()) {
+      auto session_lease = session_owner.acquire();
+      if (!session_lease) {
+        BOOST_LOG(debug) << "Stopping audio packet encoding because the session generation is closing";
+        break;
+      }
+
       buffer_t packet {1400};
 
       int bytes = opus_multistream_encode_float(opus.get(), sample->data(), frame_size, std::begin(packet), packet.size());
@@ -123,11 +129,11 @@ namespace audio {
       }
 
       packet.fake_resize(bytes);
-      packets->raise(channel_data, std::move(packet));
+      packets->raise(packet_t {session_owner, std::move(*session_lease), std::move(packet)});
     }
   }
 
-  void capture(safe::mail_t mail, config_t config, void *channel_data) {
+  void capture(safe::mail_t mail, config_t config, syzygy::core::session_handle session_owner) {
     auto shutdown_event = mail->event<bool>(mail::shutdown);
     if (!config::audio.stream || config.input_only) {
       shutdown_event->view();
@@ -208,7 +214,7 @@ namespace audio {
     platf::adjust_thread_priority(platf::thread_priority_e::critical);
 
     auto samples = std::make_shared<sample_queue_t::element_type>(30);
-    std::thread thread {encodeThread, samples, config, channel_data};
+    std::thread thread {encodeThread, samples, config, std::move(session_owner)};
 
     auto fg = util::fail_guard([&]() {
       samples->stop();
