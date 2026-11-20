@@ -24,10 +24,21 @@ static void le32(std::string& out, std::uint32_t value) {
 }
 
 int main() {
+  using syzygy::core::frame_index_is_newer;
+  using syzygy::core::frame_index_is_recent;
   using syzygy::core::parse_client_telemetry_v1;
   using syzygy::core::parse_client_telemetry_v2;
   using syzygy::core::parse_fec_frame_status;
   using syzygy::core::parse_legacy_loss_stats;
+
+  assert(frame_index_is_recent(42, 42));
+  assert(frame_index_is_recent(41, 42));
+  assert(!frame_index_is_recent(43, 42));
+  assert(!frame_index_is_recent(1, 600));
+  assert(frame_index_is_recent(0xFFFFFFFEu, 1));
+  assert(frame_index_is_newer(1, 0xFFFFFFFEu));
+  assert(!frame_index_is_newer(0xFFFFFFFEu, 1));
+  assert(!frame_index_is_newer(42, 42));
 
   std::string fec;
   be32(fec, 7);      // frame index
