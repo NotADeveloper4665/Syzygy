@@ -123,8 +123,10 @@ namespace audio {
       int bytes = opus_multistream_encode_float(opus.get(), sample->data(), frame_size, std::begin(packet), packet.size());
       if (bytes < 0) {
         BOOST_LOG(error) << "Couldn't encode audio: "sv << opus_strerror(bytes);
-        packets->stop();
-
+        // The packet queue is shared by every session. Stopping it here would
+        // strand other sessions' queued packets (and their lifetime leases)
+        // without a consumer. Let this encoder worker exit; broadcast shutdown
+        // owns stopping and clearing the shared queue.
         return;
       }
 
