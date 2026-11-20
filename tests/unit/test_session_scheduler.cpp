@@ -60,6 +60,7 @@ TEST(SessionScheduler, DeficitRoundRobinSharesServiceByBytes) {
   limits.global_bytes = 10000;
   limits.per_session_frames = 8;
   limits.per_session_bytes = 8000;
+  limits.per_session_recovery_reserve_bytes = 100;
   limits.recovery_reserve_frames = 1;
   limits.recovery_reserve_bytes = 100;
   limits.quantum_bytes = 100;
