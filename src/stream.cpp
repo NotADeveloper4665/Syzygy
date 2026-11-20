@@ -366,6 +366,7 @@ namespace stream {
     std::mutex core_telemetry_mutex;
     syzygy::core::telemetry_sample core_telemetry;
     std::chrono::steady_clock::time_point core_last_diagnostic_at {};
+    std::chrono::steady_clock::time_point core_last_enet_ping_at {};
     std::uint32_t core_last_sent_frame_index {};
     std::uint32_t core_last_client_feedback_frame {};
     std::deque<std::pair<std::uint32_t, std::uint8_t>> core_fec_report_keys;
@@ -1309,6 +1310,14 @@ namespace stream {
           auto *peer = session->control.peer;
           if (!peer || peer->state != ENET_PEER_STATE_CONNECTED) {
             continue;
+          }
+
+          // ENet PING is transport-level and does not add a Moonlight control
+          // message. One probe per second refreshes the host-side RTT estimate.
+          if (session->core_last_enet_ping_at.time_since_epoch().count() == 0 ||
+              observed_at - session->core_last_enet_ping_at >= std::chrono::seconds(1)) {
+            enet_peer_ping(peer);
+            session->core_last_enet_ping_at = observed_at;
           }
 
           const auto rtt_ms = peer->roundTripTime;
