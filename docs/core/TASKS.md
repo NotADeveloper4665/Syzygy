@@ -21,6 +21,7 @@
 - [x] Add per-session NVENC API-to-matching-output timing with explicit driver/API-wait semantics.
 - [x] Add per-session internal packet queue-wait timing from publication to broadcaster dequeue.
 - [x] Add per-session capture-to-encoder age and Linux KMS/X11 capture callback duration.
+- [x] Preserve the unadjusted source timestamp separately from Moonlight's cadence-adjusted frame-header timestamp so APD host-pipeline latency remains capture-to-broadcast.
 - [x] Add conversion duration around async and synchronized `session->convert()` calls.
 - [x] Add NVENC and AVCodec/FFmpeg encode timing; FFmpeg outputs are correlated through a bounded PTS registry.
 - [x] Parse Moonlight FEC status and legacy loss feedback; preserve legacy count/time without inventing a rate.
