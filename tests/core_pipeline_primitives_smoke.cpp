@@ -57,14 +57,13 @@ int main() {
   auto in_flight = lifetime.acquire(9);
   assert(in_flight && in_flight->generation() == 9);
   assert(!lifetime.acquire(8));
+  lifetime.close();
+  assert(!lifetime.acquire(9));
   std::atomic<bool> drained {false};
   std::thread teardown {[&] {
     lifetime.close_and_wait();
     drained.store(true);
   }};
-  while (lifetime.acquire(9)) {
-    assert(false && "closed session accepted a new owner");
-  }
   assert(!drained.load());
   in_flight->release();
   teardown.join();
