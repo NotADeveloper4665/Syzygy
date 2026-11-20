@@ -79,6 +79,10 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -I. tests/core_telemetry_smoke.cpp src/syzygy/core/telemetry.cpp -o /tmp/syzygy-core-telemetry-smoke
           /tmp/syzygy-core-telemetry-smoke
+      - name: Test bounded per-session video admission
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -I. tests/core_bounded_session_video_queue.cpp -pthread -o /tmp/syzygy-bounded-session-video-queue
+          /tmp/syzygy-bounded-session-video-queue
       - name: Build RPM package
         env:
           RELEASE_VERSION: '0.0.9'
