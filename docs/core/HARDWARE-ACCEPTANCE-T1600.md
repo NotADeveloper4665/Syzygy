@@ -83,6 +83,7 @@ If a requested mode is unsupported, record the failure and actual negotiated mod
 - RTT/variance freshness advances only on a new acknowledged ENet sample; repeatedly polling cached values must not keep old telemetry fresh.
 - Recovery-triggered FEC block loss is shown as a conditional block sample and cannot alone label the session network-bound.
 - FEC loss uses the reported block denominator; no report is not treated as zero.
+- Diagnostic output preserves the lost-shard count and FEC block's total-data-shard denominator; legacy count/interval remains denominator-free.
 - Client decode/presentation is unavailable unless an explicit compatible sender is used.
 - No sample from one session affects another session.
 - Missing/stale samples never become zero or produce a control action.
