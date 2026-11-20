@@ -24,6 +24,7 @@ The current implementation must not:
 - label ENet RTT variance as one-way or media-packet jitter;
 - claim media-jitter coverage when a client does not send the optional v2 extension;
 - infer a stream-wide loss rate from a recovery-triggered FEC block report;
+- classify a session as network-bound from a single recovery-triggered FEC block report without independent RTT or client media-jitter evidence;
 - infer a packet-loss percentage from legacy count/time without a denominator;
 - claim client decode/presentation coverage when a client does not send the optional Syzygy extension.
 
