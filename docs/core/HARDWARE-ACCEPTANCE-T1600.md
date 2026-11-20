@@ -1,6 +1,6 @@
 # T1600 Hardware Acceptance — Syzygy Core and Headless Streaming
 
-Status: pending physical-host execution.
+Status: pending physical-host execution. No physical T1600 measurements were produced by CI or this automation run.
 
 ## Target host
 
@@ -15,23 +15,28 @@ CI software-rendered capture tests do not satisfy this hardware acceptance.
 
 ## Test preparation
 
-1. Build/install the candidate Syzygy RPM from the tested PR commit.
-2. Record `syzygy --version`, kernel, driver, GPU name, and capture backend.
+1. Build/install the candidate Syzygy RPM from the exact tested PR commit.
+2. Record `syzygy --version`, package version, kernel, driver, GPU name, and capture backend.
 3. Confirm NVENC is available and note the selected codec/preset.
-4. Keep the client, network path, and game workload consistent across comparisons.
+4. Keep client, network path, scene, bitrate, FEC, and workload consistent across comparisons.
 5. Confirm APD is observe-only; no automatic control action is permitted.
-
-Record GPU telemetry in a separate terminal:
+6. Start the stream, then run the collector from the repository root:
 
 ```bash
-nvidia-smi --query-gpu=timestamp,name,driver_version,utilization.gpu,utilization.memory,memory.used,temperature.gpu,power.draw,clocks.gr,clocks.mem --format=csv -l 1 > ~/syzygy-t1600-gpu.csv
+bash scripts/collect-t1600-apd-telemetry.sh 300 ~/syzygy-t1600-run-01
 ```
 
-Capture Syzygy debug output for the same interval. The current diagnostics emit once per session every five seconds and include host pipeline, NVENC API-to-output, queue wait, classification, confidence, and explanation.
+The collector records host/GPU information, one-second GPU utilization and process telemetry, process CPU/RSS, the user journal, and the known Syzygy service log when present. It creates a compressed bundle next to the output directory. It does not start a stream or change system settings.
+
+For a longer soak:
+
+```bash
+bash scripts/collect-t1600-apd-telemetry.sh 600 ~/syzygy-t1600-soak
+```
 
 ## Workload matrix
 
-Run each case for at least five minutes after a one-minute warm-up:
+Run each supported case for at least five minutes after a one-minute warm-up. Repeat the primary case at least five times and perform a ten-minute soak after the baseline is stable.
 
 | Resolution / rate | Codec | Capture mode | Purpose |
 | --- | --- | --- | --- |
@@ -40,6 +45,7 @@ Run each case for at least five minutes after a one-minute warm-up:
 | 1920x1080 @ 60 | HEVC | logged-in KDE | NVENC HEVC path |
 | 1920x1080 @ 60 | H.264 | headless session | Headless encoder/capture path |
 | 1920x1080 @ 60 | HEVC | headless session | Headless HEVC path |
+| 1920x1080 @ 60 | H.264 | two clients, if stable | Per-session isolation and shared-sender contention |
 
 If a requested mode is unsupported, record the failure and actual negotiated mode; do not substitute silently.
 
@@ -47,18 +53,29 @@ If a requested mode is unsupported, record the failure and actual negotiated mod
 
 - Syzygy commit SHA and package version
 - resolution, frame rate, codec, encoder preset, capture backend
+- capture-to-encoder age, capture callback duration, conversion duration
+- NVENC or FFmpeg submission-to-matching-output duration
+- internal packet queue wait and combined host pipeline time
+- control-channel RTT and RTT variance; do not label these as media-path jitter
+- FEC-reported per-block loss and recovery counts when the client sends them
+- client decode/presentation values only if a compatible `0x5506` sender is present
 - GPU utilization, memory use, temperature, power, and clocks
 - CPU utilization and process load
 - client-reported frame rate and visible stutter/latency observations
-- APD host-pipeline, NVENC API-to-output, and send-queue measurements
-- network type and observed conditions
-- dropped frames, encoder errors, capture failures, and audio/input behavior
+- dropped frames, encoder errors, capture failures, audio/input behavior
+- whether the session used KMS, X11 SHM/non-SHM, or another backend
 
 ## Acceptance gates
 
 - Per-session telemetry follows the correct client when two sessions are tested.
-- NVENC timing is present only for frame-index-matched output and is not described as pure GPU execution time.
+- Capture backend duration is present only for a backend with a verified callback boundary.
+- Conversion is distinguishable from capture and encoder submission/output.
+- NVENC and FFmpeg timing is present only for frame-index/PTS-matched output.
+- FFmpeg delayed/reordered output never receives the most recently submitted frame's metadata.
 - Queue wait is distinguishable from socket/network delivery.
+- Control RTT/variance is labeled as ENet control-path telemetry, not one-way media latency.
+- FEC loss uses the reported block denominator; no report is not treated as zero.
+- Client decode/presentation is unavailable unless an explicit compatible sender is used.
 - No sample from one session affects another session.
 - Missing/stale samples never become zero or produce a control action.
 - Diagnostics broadly agree with independent GPU and client observations.
@@ -66,8 +83,9 @@ If a requested mode is unsupported, record the failure and actual negotiated mod
 
 ## Outstanding limitations
 
-- Capture-stage timing is not yet wired.
-- AVCodec/FFmpeg encode timing is not yet wired.
-- Network RTT/jitter and a valid packet-loss rate are not yet wired.
-- Client decode/presentation telemetry is not available from the inspected protocol path.
-- The user must run this matrix on the physical T1600; CI cannot emulate the GTX 1060.
+- The physical T1600 workload matrix remains unrun.
+- Media-path inter-arrival jitter is not yet measured; ENet RTT variance is only a control-path proxy.
+- Packetizer/FEC duration, socket submission duration, and send errors are not yet separate telemetry stages.
+- Encoder in-flight depth and GPU surface completion are not yet connected to runtime telemetry.
+- The `0x5506` client feedback receiver exists, but no client sender is included in this repository.
+- CI software rendering cannot emulate the GTX 1060, its NVENC driver path, or the physical display capture stack.
