@@ -6,10 +6,12 @@
 #include <cstdint>
 #include <memory>
 
+#include <src/audio.h>
 #include <src/thread_safe.h>
 #include <src/syzygy/core/pipeline_primitives.h>
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace stream {
@@ -43,19 +45,21 @@ TEST(ConcatAndInsertTests, ConcatSmallStrideTest) {
 }
 
 
-TEST(SessionPacketQueueTests, ClearingStoppedQueueReleasesSessionLease) {
+TEST(SessionPacketQueueTests, ClearingStoppedQueueReleasesAudioPacketLease) {
+  using syzygy::core::session_handle;
   using syzygy::core::session_lifetime;
 
+  auto owner = std::make_shared<int>(88);
+  std::weak_ptr<int> weak_owner = owner;
   auto fence = std::make_shared<session_lifetime>(88);
-  struct queued_lease {
-    session_lifetime::lease value;
-    explicit queued_lease(session_lifetime::lease &&lease): value {std::move(lease)} {}
-  };
-
-  safe::queue_t<std::unique_ptr<queued_lease>> packets {4};
-  auto lease = fence->acquire(88);
+  session_handle handle {owner, fence, 88};
+  auto lease = handle.acquire();
   ASSERT_TRUE(lease.has_value());
-  packets.raise(std::make_unique<queued_lease>(std::move(*lease)));
+
+  safe::queue_t<audio::packet_t> packets {4};
+  packets.raise(audio::packet_t {handle, std::move(*lease), audio::buffer_t {16}});
+  owner.reset();
+  handle = {};
 
   fence->close();
   EXPECT_EQ(fence->outstanding(), 1u);
@@ -63,4 +67,35 @@ TEST(SessionPacketQueueTests, ClearingStoppedQueueReleasesSessionLease) {
   packets.clear();
   EXPECT_EQ(fence->outstanding(), 0u);
   fence->close_and_wait();
+  EXPECT_TRUE(weak_owner.expired());
+}
+
+TEST(SessionPacketQueueTests, PoppedAudioPacketRetainsLeaseUntilSendCompletes) {
+  using syzygy::core::session_handle;
+  using syzygy::core::session_lifetime;
+
+  auto owner = std::make_shared<int>(42);
+  std::weak_ptr<int> weak_owner = owner;
+  auto fence = std::make_shared<session_lifetime>(89);
+  session_handle handle {owner, fence, 89};
+  auto lease = handle.acquire();
+  ASSERT_TRUE(lease.has_value());
+
+  safe::queue_t<audio::packet_t> packets {4};
+  packets.raise(audio::packet_t {handle, std::move(*lease), audio::buffer_t {16}});
+  owner.reset();
+  handle = {};
+  fence->close();
+
+  auto packet = packets.pop();
+  ASSERT_TRUE(packet.has_value());
+  ASSERT_TRUE(packet->session);
+  EXPECT_EQ(*packet->session.owner_as<int>(), 42);
+  EXPECT_TRUE(static_cast<bool>(packet->session_lease));
+  EXPECT_EQ(fence->outstanding(), 1u);
+
+  packet.reset();
+  EXPECT_EQ(fence->outstanding(), 0u);
+  fence->close_and_wait();
+  EXPECT_TRUE(weak_owner.expired());
 }
