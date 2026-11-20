@@ -1,7 +1,7 @@
 name: Syzygy Linux build and key checks
 on:
   push:
-    branches: [main]
+    branches: [main, feature/syzygy-core-intelligence]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
