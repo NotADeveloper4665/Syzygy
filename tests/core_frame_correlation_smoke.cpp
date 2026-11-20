@@ -14,6 +14,7 @@ int main() {
   frame_timing_record first;
   first.pts = 100;
   first.submitted_at = now;
+  first.core_frame_timestamp = now - std::chrono::milliseconds(3);
   first.capture_ms = 3.0;
   first.capture_backend_ms = 1.0;
   assert(correlator.remember(first));
@@ -21,6 +22,7 @@ int main() {
   frame_timing_record second;
   second.pts = 101;
   second.submitted_at = now + std::chrono::milliseconds(1);
+  second.core_frame_timestamp = now - std::chrono::milliseconds(4);
   second.capture_ms = 4.0;
   second.conversion_ms = 2.0;
   assert(correlator.remember(second));
@@ -36,6 +38,7 @@ int main() {
   auto reordered = correlator.take(101);
   assert(reordered && reordered->pts == 101);
   assert(reordered->capture_ms && *reordered->capture_ms == 4.0);
+  assert(reordered->core_frame_timestamp && *reordered->core_frame_timestamp == now - std::chrono::milliseconds(4));
   assert(reordered->conversion_ms && *reordered->conversion_ms == 2.0);
 
   auto delayed = correlator.take(100);
