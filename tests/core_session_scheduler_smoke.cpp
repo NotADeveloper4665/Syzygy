@@ -1,0 +1,60 @@
+#include <cassert>
+#include <chrono>
+#include <cstdint>
+#include <string>
+
+#include <src/syzygy/core/session_scheduler.h>
+
+int main() {
+  using scheduler_t = syzygy::core::session_scheduler<std::string>;
+  using key_t = scheduler_t::session_key;
+
+  scheduler_t::limits limits;
+  limits.global_frames = 4;
+  limits.global_bytes = 1000;
+  limits.per_session_frames = 4;
+  limits.per_session_bytes = 1000;
+  limits.recovery_reserve_frames = 1;
+  limits.recovery_reserve_bytes = 250;
+  limits.per_session_recovery_reserve_frames = 1;
+  limits.per_session_recovery_reserve_bytes = 250;
+  limits.quantum_bytes = 100;
+
+  scheduler_t scheduler {limits};
+  const key_t a {1, 1};
+  const key_t b {2, 1};
+  assert(scheduler.register_session(a));
+  assert(scheduler.register_session(b));
+
+  assert(scheduler.enqueue(a, "a1", 200, false) == scheduler_t::admission::accepted);
+  assert(scheduler.enqueue(a, "a2", 200, false) == scheduler_t::admission::accepted);
+  assert(scheduler.enqueue(a, "a3", 200, false) == scheduler_t::admission::accepted);
+  assert(scheduler.enqueue(a, "a4", 1, false) == scheduler_t::admission::capacity_exceeded);
+  assert(scheduler.enqueue(a, "a5", 1, false) == scheduler_t::admission::recovery_required);
+  assert(scheduler.enqueue(a, "idr", 200, true) == scheduler_t::admission::accepted);
+
+  const auto now = scheduler_t::clock::now();
+  assert(scheduler.enqueue(b, "b1", 100, false, now - std::chrono::milliseconds(10)) == scheduler_t::admission::accepted);
+  const auto b_stats = scheduler.stats(b, now);
+  assert(b_stats.frames == 1 && b_stats.bytes == 100 && b_stats.oldest_age_ms >= 10.0);
+
+  // Old generation cannot enqueue after reconnect; unregister also releases
+  // queued packet ownership and global accounting.
+  assert(scheduler.unregister_session(b));
+  const key_t b_reconnected {2, 2};
+  assert(scheduler.register_session(b_reconnected));
+  assert(scheduler.enqueue(b, "stale", 100, false) == scheduler_t::admission::stale_generation);
+  assert(scheduler.global_stats().bytes == 800);
+
+  // Drain in FIFO order within session A.
+  std::string first;
+  for (int i = 0; i < 4; ++i) {
+    auto item = scheduler.try_pop();
+    assert(item.has_value());
+    if (item->session.id == a.id && first.empty()) first = item->value;
+  }
+  assert(first == "a1");
+  scheduler.stop();
+  assert(scheduler.enqueue(a, "after-stop", 10, true) == scheduler_t::admission::stopped);
+  return 0;
+}
