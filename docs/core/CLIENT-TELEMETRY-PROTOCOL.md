@@ -54,7 +54,7 @@ V1 is unchanged and remains accepted. V2 contains every v1 field plus the jitter
 
 The host parser rejects wrong size, magic, version, flags, declared size, invalid sample/window counts, zero frame index, and out-of-range durations. V2 additionally rejects jitter above five seconds.
 
-The control handler rejects feedback whose frame index is ahead of the latest frame whose complete host send path has finished, more than 512 frames behind, or not newer than the last accepted report. Decode/presentation and media-jitter freshness timestamps are stored independently so a v1 report cannot refresh an older v2 jitter value.
+The control handler rejects feedback whose frame index is ahead of the latest frame whose complete host send path has finished, more than 512 frames behind, or not newer than the last accepted report. Comparisons use 32-bit serial-number arithmetic so the bounded window remains valid across frame-index wrap. Decode/presentation and media-jitter freshness timestamps are stored independently so a v1 report cannot refresh an older v2 jitter value.
 
 The host stores decode, presentation-queue, render, and combined presentation values in the owning session's client telemetry group. V2 media jitter is stored separately as client-reported network-path evidence. All values are observe-only and cannot change bitrate, FEC, frame rate, resolution, encoder, capture, or pacing.
 
