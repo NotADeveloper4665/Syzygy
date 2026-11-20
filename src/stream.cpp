@@ -985,8 +985,8 @@ namespace stream {
     // Moonlight SS_FRAME_FEC_STATUS is client -> host 0x5502. The same
     // numeric type is used host -> client for RGB LED control; these are
     // distinct directions and are dispatched by the control server.
-    constexpr std::uint16_t SS_FRAME_FEC_PTYPE = 0x5502;
-    server->map(SS_FRAME_FEC_PTYPE, [&](session_t *session, const std::string_view &payload) {
+    constexpr std::uint16_t SYZYGY_SS_FRAME_FEC_PTYPE = 0x5502;
+    server->map(SYZYGY_SS_FRAME_FEC_PTYPE, [&](session_t *session, const std::string_view &payload) {
       const auto report = syzygy::core::parse_fec_frame_status(payload);
       if (!report) {
         BOOST_LOG(verbose) << "Ignoring malformed SS_FRAME_FEC_STATUS payload";
@@ -1026,7 +1026,7 @@ namespace stream {
     // until a client implements the documented v1 contract.
     constexpr std::uint16_t SYZYGY_CLIENT_TELEMETRY_PTYPE = 0x5506;
     server->map(SYZYGY_CLIENT_TELEMETRY_PTYPE, [&](session_t *session, const std::string_view &payload) {
-      const auto feedback = syzygy::core::parse_client_telemetry_v1(payload);
+      const auto feedback = syzygy::core::parse_client_telemetry(payload);
       if (!feedback) {
         BOOST_LOG(verbose) << "Ignoring malformed Syzygy client telemetry v1 payload";
         return;
@@ -1048,15 +1048,21 @@ namespace stream {
         session->core_telemetry.client_render_ms = feedback->render_ms;
         session->core_telemetry.client_presentation_ms = feedback->presentation_ms;
         session->core_telemetry.client_observed_at = observed_at;
+        if (feedback->media_interarrival_jitter_ms) {
+          session->core_telemetry.client_media_jitter_ms = feedback->media_interarrival_jitter_ms;
+          session->core_telemetry.media_jitter_observed_at = observed_at;
+        }
       }
 
       BOOST_LOG(verbose)
-        << "Syzygy client telemetry frame=" << feedback->last_frame_index
+        << "Syzygy client telemetry v" << static_cast<unsigned int>(feedback->version)
+        << " frame=" << feedback->last_frame_index
         << " samples=" << feedback->sample_count
         << " window_ms=" << feedback->window_ms
         << " decode_ms=" << feedback->decode_ms
         << " presentation_queue_ms=" << feedback->presentation_queue_ms
-        << " render_ms=" << feedback->render_ms;
+        << " render_ms=" << feedback->render_ms
+        << " media_interarrival_jitter_ms=" << (feedback->media_interarrival_jitter_ms ? std::to_string(*feedback->media_interarrival_jitter_ms) : "n/a");
     });
 
     server->map(packetTypes[IDX_REQUEST_IDR_FRAME], [&](session_t *session, const std::string_view &payload) {
@@ -1508,6 +1514,7 @@ namespace stream {
         continue;
       }
       const auto packet_dequeued_at = std::chrono::steady_clock::now();
+      const auto frame_index = packet->frame_index();
       {
         std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
         if (packet->queued_at.time_since_epoch().count() != 0) {
@@ -1523,10 +1530,6 @@ namespace stream {
         session->core_telemetry.conversion_ms = packet->conversion_ms;
         session->core_telemetry.encode_ms = packet->encode_ms;
 
-        const auto frame_index = packet->frame_index();
-        if (frame_index > 0 && frame_index <= std::numeric_limits<std::uint32_t>::max()) {
-          session->core_last_sent_frame_index = static_cast<std::uint32_t>(frame_index);
-        }
         session->core_telemetry.observed_at = packet_dequeued_at;
       }
       auto lowseq = session->video.lowseq;
@@ -1694,6 +1697,7 @@ namespace stream {
         }
       }
 
+      bool frame_send_completed = false;
       try {
         const auto wire_packet_bytes = blocksize + (session->video.cipher ? sizeof(video_packet_enc_prefix_t) : 0) +
                                        (session->video.peer.address().is_v6() ? 48 : 28);
@@ -1900,9 +1904,18 @@ namespace stream {
         });
 
         session->video.lowseq = lowseq;
+        frame_send_completed = true;
       } catch (const std::exception &e) {
         BOOST_LOG(error) << "Broadcast video failed "sv << e.what();
         std::this_thread::sleep_for(100ms);
+      }
+
+      // Client feedback is bounded by the newest frame whose complete send
+      // path finished, not merely the packet that was dequeued for processing.
+      if (frame_send_completed && frame_index > 0 &&
+          frame_index <= std::numeric_limits<std::uint32_t>::max()) {
+        std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
+        session->core_last_sent_frame_index = static_cast<std::uint32_t>(frame_index);
       }
     }
 
