@@ -76,12 +76,18 @@ TEST(SessionScheduler, DeficitRoundRobinSharesServiceByBytes) {
 
   std::size_t a_bytes = 0;
   std::size_t b_bytes = 0;
+  std::vector<std::uint64_t> first_three;
   for (int i = 0; i < 8; ++i) {
     auto item = scheduler.try_pop();
     ASSERT_TRUE(item.has_value());
+    if (i < 3) first_three.push_back(item->session.id);
     if (item->session.id == a.id) a_bytes += item->bytes;
     if (item->session.id == b.id) b_bytes += item->bytes;
   }
+  ASSERT_EQ(first_three.size(), 3u);
+  EXPECT_EQ(first_three[0], b.id);
+  EXPECT_EQ(first_three[1], b.id);
+  EXPECT_EQ(first_three[2], a.id);
   EXPECT_EQ(a_bytes, 1200u);
   EXPECT_EQ(b_bytes, 400u);
 }
