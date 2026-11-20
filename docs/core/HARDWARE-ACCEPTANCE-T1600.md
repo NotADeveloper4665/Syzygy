@@ -24,9 +24,11 @@ CI software-rendered capture tests do not satisfy this hardware acceptance.
 
 ```bash
 bash scripts/collect-t1600-apd-telemetry.sh 300 ~/syzygy-t1600-run-01
+# Optional: pin NIC counters to the interface carrying the stream
+SYZYGY_T1600_INTERFACE=YOUR_STREAM_INTERFACE bash scripts/collect-t1600-apd-telemetry.sh 300 ~/syzygy-t1600-run-01-nic
 ```
 
-The collector records host/GPU information, one-second GPU and encoder utilization, process CPU/RSS, network-interface counters and qdisc statistics, the user and kernel journals, and the known Syzygy service log when present. It does not generate network traffic or change system settings. It creates a compressed bundle next to the output directory. It does not start a stream or change system settings.
+The collector records host/GPU information, one-second GPU and encoder utilization, process CPU/RSS, network-interface counters and qdisc statistics, the user and kernel journals, and the known Syzygy service log when present. It does not generate network traffic or change system settings. By default it samples the interface selected by a route lookup to `1.1.1.1`; set `SYZYGY_T1600_INTERFACE` to the stream-facing interface if the stream uses a different NIC. It creates a compressed bundle next to the output directory. It does not start a stream or change system settings.
 
 For a longer soak:
 
