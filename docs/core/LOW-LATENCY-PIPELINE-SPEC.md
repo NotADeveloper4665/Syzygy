@@ -157,3 +157,33 @@ Rubylight is GPL-3.0. Syzygy is also GPL-3.0. Any directly adapted code must ret
 ## 9. Initial implementation decision
 
 Start with Phase A instrumentation and a review of the current generic packet queue. Do not immediately port Rubylight's Windows D3D12/IddCx code or enable frame dropping in the encoded packet queue. Once queue semantics and telemetry are tested, implement the per-session packetizer/sender handoff as the first behavior-changing optimization.
+
+
+## 10. Scheduler implementation status (2026-11-20)
+
+A platform-neutral `syzygy::core::session_scheduler<T>` primitive now exists in
+`src/syzygy/core/session_scheduler.h`, with deterministic unit coverage in
+`tests/unit/test_session_scheduler.cpp`.
+
+Implemented in this foundation:
+
+- Per-session FIFO queues with global and per-session byte/frame caps.
+- Deficit-round-robin service accounting by encoded bytes, with bounded weights.
+- Separate global and per-session recovery reserves for keyframes.
+- Explicit admission outcomes; an overflow marks that session as requiring a
+  recovery keyframe, and subsequent dependent frames are rejected until an
+  IDR is admitted.
+- Queue frame count, queued bytes, oldest-item age and recovery-required state.
+- Session generation tokens; unregister clears queued ownership and rejects
+  late enqueues from a previous connection generation.
+- No queue eviction or silent frame reordering; FIFO order is retained within
+  each session.
+
+This is a tested scheduler primitive, **not yet the active runtime video queue**.
+The existing encoder still publishes to the shared `mail::video_packets`
+queue, and `videoBroadcastThread` still combines packetization, FEC,
+encryption, pacing and socket submission. The next integration change must
+move encoded-frame publication to the per-session scheduler, then split the
+packetizer from the paced sender with a bounded block handoff. Keep this
+distinction explicit in status reports until the runtime path and its teardown
+tests are complete.
