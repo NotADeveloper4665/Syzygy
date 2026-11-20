@@ -1005,9 +1005,8 @@ namespace stream {
       const auto key = std::make_pair(report->frame_index, report->block_index);
       {
         std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
-        if (session->core_last_started_frame_index == 0 ||
-            report->frame_index > session->core_last_started_frame_index ||
-            session->core_last_started_frame_index - report->frame_index > 512 ||
+        if (!syzygy::core::frame_index_is_recent(
+                report->frame_index, session->core_last_started_frame_index) ||
             std::find(session->core_fec_report_keys.begin(), session->core_fec_report_keys.end(), key) !=
                 session->core_fec_report_keys.end()) {
           return;
@@ -1046,10 +1045,11 @@ namespace stream {
       const auto observed_at = std::chrono::steady_clock::now();
       {
         std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
-        if (session->core_last_sent_frame_index == 0 ||
-            feedback->last_frame_index > session->core_last_sent_frame_index ||
-            session->core_last_sent_frame_index - feedback->last_frame_index > 512 ||
-            feedback->last_frame_index <= session->core_last_client_feedback_frame) {
+        if (!syzygy::core::frame_index_is_recent(
+                feedback->last_frame_index, session->core_last_sent_frame_index) ||
+            (session->core_last_client_feedback_frame != 0 &&
+             !syzygy::core::frame_index_is_newer(
+                 feedback->last_frame_index, session->core_last_client_feedback_frame))) {
           return;
         }
 
