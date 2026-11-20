@@ -36,3 +36,4 @@ Notable repository changes are recorded here; entries do not imply unverified ru
 - Recovery-triggered FEC block loss remains conditional diagnostic evidence and cannot independently classify a session as network-bound.
 - Structured diagnostics now include client media jitter, FEC recovery-block loss, legacy loss count/interval, and separate client decode, presentation-queue, and render measurements.
 - FEC and client-feedback frame validation now uses wrap-safe 32-bit serial arithmetic.
+- FEC recovery diagnostics retain the reported data-shard denominator alongside the lost-shard count; legacy loss reports remain denominator-free.
