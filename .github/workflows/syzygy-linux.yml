@@ -83,6 +83,10 @@ jobs:
         run: |
           g++ -std=c++23 -Wall -Wextra -Werror -I. tests/core_session_scheduler_smoke.cpp -o /tmp/syzygy-session-scheduler-smoke
           /tmp/syzygy-session-scheduler-smoke
+      - name: Test pipeline wire cost, socket pressure and ownership
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -I. tests/core_pipeline_primitives_smoke.cpp -pthread -o /tmp/syzygy-pipeline-primitives-smoke
+          /tmp/syzygy-pipeline-primitives-smoke
       - name: Build RPM package
         env:
           RELEASE_VERSION: '0.0.9'
