@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <condition_variable>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -169,15 +170,89 @@ public:
     std::lock_guard lock {mutex_};
     if (completed_) return false;
     completed_ = true;
+    cv_.notify_all();
     return true;
   }
   bool is_complete() const noexcept {
     std::lock_guard lock {mutex_};
     return completed_;
   }
+  void wait() const {
+    std::unique_lock lock {mutex_};
+    cv_.wait(lock, [this] { return completed_; });
+  }
 private:
   mutable std::mutex mutex_;
+  mutable std::condition_variable cv_;
   bool completed_ {};
+};
+
+// Lifetime fence for session-owned state. Every queued/in-flight frame or
+// FEC block must hold a lease. Closing prevents new leases; the session owner
+// waits for outstanding leases to drain before destroying cipher/buffer state.
+class session_lifetime {
+  struct state {
+    explicit state(std::uint64_t value): generation {value} {}
+    mutable std::mutex mutex;
+    std::condition_variable cv;
+    const std::uint64_t generation;
+    std::size_t outstanding {};
+    bool accepting {true};
+  };
+
+public:
+  class lease {
+  public:
+    lease() = default;
+    lease(const lease &) = delete;
+    lease &operator=(const lease &) = delete;
+    lease(lease &&other) noexcept: state_ {std::move(other.state_)} {}
+    lease &operator=(lease &&other) noexcept {
+      release();
+      state_ = std::move(other.state_);
+      return *this;
+    }
+    ~lease() { release(); }
+    explicit operator bool() const noexcept { return static_cast<bool>(state_); }
+    std::uint64_t generation() const noexcept { return state_ ? state_->generation : 0; }
+    void release() noexcept {
+      if (!state_) return;
+      {
+        std::lock_guard lock {state_->mutex};
+        --state_->outstanding;
+        if (!state_->accepting && state_->outstanding == 0) state_->cv.notify_all();
+      }
+      state_.reset();
+    }
+  private:
+    friend class session_lifetime;
+    explicit lease(std::shared_ptr<state> shared): state_ {std::move(shared)} {}
+    std::shared_ptr<state> state_;
+  };
+
+  explicit session_lifetime(std::uint64_t generation):
+      state_ {std::make_shared<state>(generation)} {}
+
+  std::optional<lease> acquire(std::uint64_t generation) {
+    std::lock_guard lock {state_->mutex};
+    if (!state_->accepting || generation != state_->generation) return std::nullopt;
+    ++state_->outstanding;
+    return lease {state_};
+  }
+
+  void close_and_wait() {
+    std::unique_lock lock {state_->mutex};
+    state_->accepting = false;
+    state_->cv.wait(lock, [this] { return state_->outstanding == 0; });
+  }
+
+  std::size_t outstanding() const {
+    std::lock_guard lock {state_->mutex};
+    return state_->outstanding;
+  }
+
+private:
+  std::shared_ptr<state> state_;
 };
 
 } // namespace syzygy::core
