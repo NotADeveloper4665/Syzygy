@@ -141,7 +141,7 @@ TEST(CoreTelemetry, HostPipelineCorroboratesEncodeWithoutCreatingFalseMixedResul
   EXPECT_EQ(result.certainty, syzygy::core::confidence::medium);
 }
 
-TEST(CoreTelemetry, SendQueueLatencyCanIdentifyNetworkBoundPipeline) {
+TEST(CoreTelemetry, SendQueueLatencyCanIdentifySenderQueueBoundPipeline) {
   const auto now = monotonic_clock::now();
   auto sample = baseline_sample(now);
   sample.send_queue_ms = 12.0;
