@@ -17,6 +17,13 @@ bool valid_interval(const std::optional<double>& value) {
   return !value || (std::isfinite(*value) && *value >= 1.0 && *value <= 60000.0);
 }
 
+bool valid_loss_counts(const telemetry_sample& sample) {
+  if (!sample.packet_loss_total_data_packets) return true;
+  return *sample.packet_loss_total_data_packets > 0 &&
+         sample.packet_loss_count.has_value() &&
+         *sample.packet_loss_count <= *sample.packet_loss_total_data_packets;
+}
+
 bool elevated(const std::optional<double>& value, double threshold) {
   return value && *value >= threshold;
 }
@@ -68,6 +75,7 @@ bool valid_sample(const telemetry_sample& sample) noexcept {
          valid_duration(sample.network_rtt_variance_ms) &&
          valid_duration(sample.client_media_jitter_ms) &&
          valid_loss(sample.packet_loss_per_mille) &&
+         valid_loss_counts(sample) &&
          valid_interval(sample.packet_loss_interval_ms) &&
          valid_duration(sample.client_decode_ms) &&
          valid_duration(sample.client_presentation_queue_ms) &&
@@ -245,7 +253,7 @@ pipeline_assessment assess_pipeline(
   } else if (network) {
     result.classification = bottleneck::network_bound;
     result.certainty = confidence::medium;
-    result.explanation = "Control-path RTT/variance or client-reported FEC loss indicates network pressure.";
+    result.explanation = "Control-path RTT/variance or client-reported media inter-arrival jitter indicates network pressure.";
   } else if (host_pipeline_fallback) {
     result.classification = bottleneck::host_pipeline_pressure;
     result.certainty = confidence::low;
