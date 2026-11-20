@@ -48,8 +48,8 @@ int main() {
   assert(!parse_fec_frame_status(std::string_view(fec).substr(0, 20)));
 
   auto invalid_fec = fec;
-  invalid_fec[15] = 0;
-  invalid_fec[16] = 11; // received data > total data
+  invalid_fec[14] = 0;
+  invalid_fec[15] = 11; // received data > total data
   assert(!parse_fec_frame_status(invalid_fec));
 
   std::string legacy;
