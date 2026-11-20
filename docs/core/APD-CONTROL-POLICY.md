@@ -9,7 +9,10 @@ Use fresh, per-session evidence to recommend reversible streaming adjustments wi
 ## 2. Current release boundary
 
 The current implementation may:
-- collect verified host and packet timing measurements;
+- collect verified per-session host timing measurements;
+- collect ENet control-channel RTT and RTT-variance telemetry;
+- collect Moonlight FEC-reported per-block data loss and legacy raw loss count/interval;
+- validate and receive the optional Syzygy client decode/presentation extension;
 - classify pipeline pressure;
 - emit rate-limited per-session diagnostics.
 
@@ -17,7 +20,10 @@ The current implementation must not:
 - change bitrate, FEC, resolution, frame rate, encoder, capture backend, or packet pacing;
 - restart or recover a stream automatically;
 - use telemetry from one session to affect another session;
-- infer client decode, display latency, packet-loss percentage, RTT, or jitter from unsupported sources.
+- label ENet RTT variance as one-way or media-packet jitter;
+- infer a stream-wide loss rate from a recovery-triggered FEC block report;
+- infer a packet-loss percentage from legacy count/time without a denominator;
+- claim client decode/presentation coverage when a client does not send the optional Syzygy extension.
 
 ## 3. Candidate actuator boundary
 
@@ -29,7 +35,7 @@ Initial candidate:
 - No automatic action is enabled by this specification.
 
 Deferred:
-- FEC changes: require validated packet-loss denominator/window and recovery evidence.
+- FEC changes: require a representative loss window, recovery evidence, and validated packet denominator rather than a single recovered block.
 - Resolution/frame-rate changes: require a supported renegotiation contract and client capability evidence.
 - Encoder/capture backend changes: require explicit lifecycle-safe reinitialization and rollback support.
 - Process/session recovery: separate fault-recovery specification.
@@ -39,9 +45,10 @@ Deferred:
 A recommendation is eligible only when:
 1. The sample is valid, monotonic, fresh, and belongs to the target session.
 2. The relevant stage has a verified source and unit.
-3. The classifier has enough evidence to distinguish that stage from overlapping aggregate measurements.
-4. The confidence level is at least medium; low-confidence aggregate-only pressure may explain but never recommend a control action.
-5. The session is not under a manual override or another active control transition.
+3. The source semantics are preserved: control RTT is not media one-way latency; RTT variance is not RTP jitter; FEC block loss is not a continuous stream-wide rate.
+4. The classifier has enough evidence to distinguish that stage from overlapping aggregate measurements.
+5. The confidence level is at least medium; low-confidence aggregate-only pressure may explain but never recommend a control action.
+6. The session is not under a manual override or another active control transition.
 
 Missing, stale, invalid, contradictory, or unsupported measurements produce no recommendation.
 
