@@ -1568,21 +1568,33 @@ namespace stream {
         frame_header.lastPayloadLen = session->config.packetsize - sizeof(NV_VIDEO_PACKET);
       }
 
+      const auto pipeline_observed_at = std::chrono::steady_clock::now();
       if (packet->frame_timestamp) {
-        const auto pipeline_observed_at = std::chrono::steady_clock::now();
         auto duration_to_latency = [](const std::chrono::steady_clock::duration &duration) {
           const auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
           return (uint16_t) std::clamp<decltype(duration_us)>((duration_us + 50) / 100, 0, std::numeric_limits<uint16_t>::max());
         };
 
-        uint16_t latency = duration_to_latency(pipeline_observed_at - *packet->frame_timestamp);
-        {
-          std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
-          session->core_telemetry.observed_at = pipeline_observed_at;
-          session->core_telemetry.host_pipeline_ms = latency / 10.0;
-        }
+        // Preserve the existing cadence-adjusted timestamp in Moonlight's
+        // frame header. APD uses the separate unadjusted source timestamp.
+        const auto latency = duration_to_latency(pipeline_observed_at - *packet->frame_timestamp);
         frame_header.frame_processing_latency = latency;
         frame_processing_latency_logger.collect_and_log(latency / 10.);
+      }
+      {
+        std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
+        session->core_telemetry.observed_at = pipeline_observed_at;
+        if (packet->core_frame_timestamp) {
+          const auto host_pipeline_ms = std::chrono::duration<double, std::milli>(
+              pipeline_observed_at - *packet->core_frame_timestamp).count();
+          if (std::isfinite(host_pipeline_ms) && host_pipeline_ms <= 5000.0) {
+            session->core_telemetry.host_pipeline_ms = host_pipeline_ms;
+          } else {
+            session->core_telemetry.host_pipeline_ms.reset();
+          }
+        } else {
+          session->core_telemetry.host_pipeline_ms.reset();
+        }
       } else {
         std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
         session->core_telemetry.observed_at = std::chrono::steady_clock::now();
