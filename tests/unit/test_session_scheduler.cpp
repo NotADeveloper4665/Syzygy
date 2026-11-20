@@ -13,6 +13,8 @@ TEST(SessionScheduler, EnforcesGlobalAndPerSessionByteAndFrameLimits) {
   limits.global_bytes = 1000;
   limits.per_session_frames = 2;
   limits.per_session_bytes = 700;
+  limits.per_session_recovery_reserve_frames = 0;
+  limits.per_session_recovery_reserve_bytes = 0;
   limits.recovery_reserve_frames = 1;
   limits.recovery_reserve_bytes = 200;
   limits.quantum_bytes = 100;
@@ -34,6 +36,8 @@ TEST(SessionScheduler, ReservesAdmissionCapacityForRecoveryKeyframes) {
   limits.global_bytes = 1000;
   limits.per_session_frames = 4;
   limits.per_session_bytes = 1000;
+  limits.per_session_recovery_reserve_frames = 1;
+  limits.per_session_recovery_reserve_bytes = 300;
   limits.recovery_reserve_frames = 1;
   limits.recovery_reserve_bytes = 300;
   limits.quantum_bytes = 100;
