@@ -1,11 +1,13 @@
 #pragma once
 
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <utility>
 
 namespace syzygy::core {
