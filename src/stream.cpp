@@ -4,10 +4,13 @@
  */
 
 // standard includes
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <deque>
 #include <fstream>
 #include <future>
+#include <mutex>
 #include <queue>
 
 // lib includes
@@ -32,6 +35,7 @@ extern "C" {
 #include "platform/common.h"
 #include "process.h"
 #include "stream.h"
+#include <src/syzygy/core/client_feedback.h>
 #include <src/syzygy/core/telemetry.h>
 #include "syzygy/wan_pacing.h"
 #include "sync.h"
@@ -357,11 +361,14 @@ namespace stream {
     std::uint64_t generation {};
     std::shared_ptr<syzygy::core::session_lifetime> lifetime;
 
-    // Owned by this session; populated by the shared video broadcaster for
-    // diagnostics. No control action consumes it in observe-only milestone 1.
+    // Session-scoped telemetry is written by capture/broadcast and control threads.
+    // Keep the snapshot and all feedback freshness timestamps under one lock.
+    std::mutex core_telemetry_mutex;
     syzygy::core::telemetry_sample core_telemetry;
-    // Written only by the shared broadcaster; rate-limits per-session diagnostics.
     std::chrono::steady_clock::time_point core_last_diagnostic_at {};
+    std::uint32_t core_last_sent_frame_index {};
+    std::uint32_t core_last_client_feedback_frame {};
+    std::deque<std::pair<std::uint32_t, std::uint8_t>> core_fec_report_keys;
 
     safe::mail_t mail;
 
@@ -953,19 +960,102 @@ namespace stream {
     });
 
     server->map(packetTypes[IDX_LOSS_STATS], [&](session_t *session, const std::string_view &payload) {
-      int32_t *stats = (int32_t *) payload.data();
-      auto count = stats[0];
-      std::chrono::milliseconds t {stats[1]};
+      const auto stats = syzygy::core::parse_legacy_loss_stats(payload);
+      if (!stats) {
+        BOOST_LOG(verbose) << "Ignoring malformed legacy loss-stats payload";
+        return;
+      }
 
-      auto lastGoodFrame = stats[3];
+      const auto observed_at = std::chrono::steady_clock::now();
+      {
+        std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
+        session->core_telemetry.packet_loss_count = stats->loss_count;
+        session->core_telemetry.packet_loss_interval_ms = static_cast<double>(stats->interval_ms);
+        session->core_telemetry.loss_observed_at = observed_at;
+      }
 
       BOOST_LOG(verbose)
-        << "type [IDX_LOSS_STATS]"sv << std::endl
-        << "---begin stats---" << std::endl
-        << "loss count since last report [" << count << ']' << std::endl
-        << "time in milli since last report [" << t.count() << ']' << std::endl
-        << "last good frame [" << lastGoodFrame << ']' << std::endl
-        << "---end stats---";
+        << "type [IDX_LOSS_STATS]"
+        << " loss_count=" << stats->loss_count
+        << " interval_ms=" << stats->interval_ms
+        << " rate=unavailable (no verified packet denominator)";
+    });
+
+    // Moonlight SS_FRAME_FEC_STATUS is client -> host 0x5502. The same
+    // numeric type is used host -> client for RGB LED control; these are
+    // distinct directions and are dispatched by the control server.
+    constexpr std::uint16_t SS_FRAME_FEC_PTYPE = 0x5502;
+    server->map(SS_FRAME_FEC_PTYPE, [&](session_t *session, const std::string_view &payload) {
+      const auto report = syzygy::core::parse_fec_frame_status(payload);
+      if (!report) {
+        BOOST_LOG(verbose) << "Ignoring malformed SS_FRAME_FEC_STATUS payload";
+        return;
+      }
+
+      const auto observed_at = std::chrono::steady_clock::now();
+      const auto key = std::make_pair(report->frame_index, report->block_index);
+      {
+        std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
+        if (std::find(session->core_fec_report_keys.begin(), session->core_fec_report_keys.end(), key) !=
+            session->core_fec_report_keys.end()) {
+          return;
+        }
+        session->core_fec_report_keys.push_back(key);
+        while (session->core_fec_report_keys.size() > 64) {
+          session->core_fec_report_keys.pop_front();
+        }
+
+        session->core_telemetry.packet_loss_count = report->lost_data_packets;
+        session->core_telemetry.packet_loss_per_mille = report->loss_per_mille;
+        session->core_telemetry.packet_loss_interval_ms.reset();
+        session->core_telemetry.loss_observed_at = observed_at;
+      }
+
+      BOOST_LOG(verbose)
+        << "SS_FRAME_FEC_STATUS frame=" << report->frame_index
+        << " block=" << static_cast<unsigned int>(report->block_index)
+        << '/' << static_cast<unsigned int>(report->block_count)
+        << " lost_data=" << report->lost_data_packets
+        << '/' << report->total_data_packets
+        << " loss_per_mille=" << report->loss_per_mille;
+    });
+
+    // Optional Syzygy client feedback extension. Existing Moonlight clients do
+    // not send this type; strict magic/version/length checks keep it inert
+    // until a client implements the documented v1 contract.
+    constexpr std::uint16_t SYZYGY_CLIENT_TELEMETRY_PTYPE = 0x5506;
+    server->map(SYZYGY_CLIENT_TELEMETRY_PTYPE, [&](session_t *session, const std::string_view &payload) {
+      const auto feedback = syzygy::core::parse_client_telemetry_v1(payload);
+      if (!feedback) {
+        BOOST_LOG(verbose) << "Ignoring malformed Syzygy client telemetry v1 payload";
+        return;
+      }
+
+      const auto observed_at = std::chrono::steady_clock::now();
+      {
+        std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
+        if (session->core_last_sent_frame_index == 0 ||
+            feedback->last_frame_index > session->core_last_sent_frame_index ||
+            session->core_last_sent_frame_index - feedback->last_frame_index > 512 ||
+            feedback->last_frame_index <= session->core_last_client_feedback_frame) {
+          return;
+        }
+
+        session->core_last_client_feedback_frame = feedback->last_frame_index;
+        session->core_telemetry.client_decode_ms = feedback->decode_ms;
+        session->core_telemetry.client_presentation_queue_ms = feedback->presentation_queue_ms;
+        session->core_telemetry.client_render_ms = feedback->render_ms;
+        session->core_telemetry.client_presentation_ms = feedback->presentation_ms;
+        session->core_telemetry.client_observed_at = observed_at;
+      }
+
+      BOOST_LOG(verbose)
+        << "Syzygy client telemetry frame=" << feedback->last_frame_index
+        << " samples=" << feedback->sample_count
+        << " window_ms=" << feedback->window_ms
+        << " decode_ms=" << feedback->decode_ms
+        << " presentation_queue_ms=" << feedback->presentation_queue_ms
+        << " render_ms=" << feedback->render_ms;
     });
 
     server->map(packetTypes[IDX_REQUEST_IDR_FRAME], [&](session_t *session, const std::string_view &payload) {
@@ -1208,6 +1298,31 @@ namespace stream {
       }
 
       server->iterate(150ms);
+
+      // ENet maintains a smoothed RTT and RTT variance from acknowledged
+      // control-channel traffic. This is a control-path estimate, not
+      // one-way media jitter; keep it session-local and timestamped.
+      {
+        auto lg = server->_sessions.lock();
+        const auto observed_at = std::chrono::steady_clock::now();
+        for (auto session : *server->_sessions) {
+          auto *peer = session->control.peer;
+          if (!peer || peer->state != ENET_PEER_STATE_CONNECTED) {
+            continue;
+          }
+
+          const auto rtt_ms = peer->roundTripTime;
+          const auto variance_ms = peer->roundTripTimeVariance;
+          if (rtt_ms == 0 || rtt_ms > 5000 || variance_ms > 5000) {
+            continue;
+          }
+
+          std::lock_guard<std::mutex> telemetry_lock {session->core_telemetry_mutex};
+          session->core_telemetry.network_rtt_ms = static_cast<double>(rtt_ms);
+          session->core_telemetry.network_rtt_variance_ms = static_cast<double>(variance_ms);
+          session->core_telemetry.network_observed_at = observed_at;
+        }
+      }
     }
 
     // Let all remaining connections know the server is shutting down
@@ -1384,18 +1499,27 @@ namespace stream {
         continue;
       }
       const auto packet_dequeued_at = std::chrono::steady_clock::now();
-      if (packet->queued_at.time_since_epoch().count() != 0) {
-        session->core_telemetry.send_queue_ms = std::chrono::duration<double, std::milli>(packet_dequeued_at - packet->queued_at).count();
-      } else {
-        session->core_telemetry.send_queue_ms.reset();
+      {
+        std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
+        if (packet->queued_at.time_since_epoch().count() != 0) {
+          session->core_telemetry.send_queue_ms =
+              std::chrono::duration<double, std::milli>(packet_dequeued_at - packet->queued_at).count();
+        } else {
+          session->core_telemetry.send_queue_ms.reset();
+        }
+        // These values are attached only to the output frame matched by NVENC
+        // frame index or FFmpeg PTS correlation.
+        session->core_telemetry.capture_ms = packet->capture_ms;
+        session->core_telemetry.capture_backend_ms = packet->capture_backend_ms;
+        session->core_telemetry.conversion_ms = packet->conversion_ms;
+        session->core_telemetry.encode_ms = packet->encode_ms;
+
+        const auto frame_index = packet->frame_index();
+        if (frame_index > 0 && frame_index <= std::numeric_limits<std::uint32_t>::max()) {
+          session->core_last_sent_frame_index = static_cast<std::uint32_t>(frame_index);
+        }
+        session->core_telemetry.observed_at = packet_dequeued_at;
       }
-      // Capture age is matched to the encoded frame by PTS/frame index; it includes
-      // capture-to-encoder mailbox wait and is not pure capture-backend execution time.
-      session->core_telemetry.capture_ms = packet->capture_ms;
-      // NVENC provides a verified frame-index-matched API-to-output interval.
-      // Other encoder backends remain unavailable rather than being guessed.
-      session->core_telemetry.encode_ms = packet->encode_ms;
-      session->core_telemetry.observed_at = packet_dequeued_at;
       auto lowseq = session->video.lowseq;
 
       std::string_view payload {(char *) packet->data(), packet->data_size()};
@@ -1433,32 +1557,53 @@ namespace stream {
         };
 
         uint16_t latency = duration_to_latency(pipeline_observed_at - *packet->frame_timestamp);
-        session->core_telemetry.observed_at = pipeline_observed_at;
-        session->core_telemetry.host_pipeline_ms = latency / 10.0;
+        {
+          std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
+          session->core_telemetry.observed_at = pipeline_observed_at;
+          session->core_telemetry.host_pipeline_ms = latency / 10.0;
+        }
         frame_header.frame_processing_latency = latency;
         frame_processing_latency_logger.collect_and_log(latency / 10.);
       } else {
+        std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
         session->core_telemetry.observed_at = std::chrono::steady_clock::now();
         session->core_telemetry.host_pipeline_ms.reset();
         frame_header.frame_processing_latency = 0;
       }
 
       const auto diagnostic_now = std::chrono::steady_clock::now();
-      if (session->core_last_diagnostic_at.time_since_epoch().count() == 0 ||
-          diagnostic_now - session->core_last_diagnostic_at >= std::chrono::seconds(5)) {
-        const auto assessment = syzygy::core::assess_pipeline(session->core_telemetry, syzygy::core::telemetry_policy {}, diagnostic_now);
+      syzygy::core::telemetry_sample telemetry_snapshot;
+      bool emit_diagnostic = false;
+      {
+        std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
+        if (session->core_last_diagnostic_at.time_since_epoch().count() == 0 ||
+            diagnostic_now - session->core_last_diagnostic_at >= std::chrono::seconds(5)) {
+          telemetry_snapshot = session->core_telemetry;
+          session->core_last_diagnostic_at = diagnostic_now;
+          emit_diagnostic = true;
+        }
+      }
+
+      if (emit_diagnostic) {
+        const auto assessment = syzygy::core::assess_pipeline(
+            telemetry_snapshot, syzygy::core::telemetry_policy {}, diagnostic_now);
         const auto measurement = [](const std::optional<double>& value) {
           return value ? std::to_string(*value) : std::string("n/a");
         };
         BOOST_LOG(debug) << "Syzygy Core pipeline"
                          << " classification=" << syzygy::core::to_string(assessment.classification)
                          << " confidence=" << syzygy::core::to_string(assessment.certainty)
-                         << " capture_to_encoder_ms=" << measurement(session->core_telemetry.capture_ms)
-                         << " host_pipeline_ms=" << measurement(session->core_telemetry.host_pipeline_ms)
-                         << " nvenc_api_output_ms=" << measurement(session->core_telemetry.encode_ms)
-                         << " send_queue_ms=" << measurement(session->core_telemetry.send_queue_ms)
+                         << " capture_to_encoder_ms=" << measurement(telemetry_snapshot.capture_ms)
+                         << " capture_backend_ms=" << measurement(telemetry_snapshot.capture_backend_ms)
+                         << " conversion_ms=" << measurement(telemetry_snapshot.conversion_ms)
+                         << " encoder_submit_to_output_ms=" << measurement(telemetry_snapshot.encode_ms)
+                         << " sender_queue_ms=" << measurement(telemetry_snapshot.send_queue_ms)
+                         << " control_rtt_ms=" << measurement(telemetry_snapshot.network_rtt_ms)
+                         << " control_rtt_variance_ms=" << measurement(telemetry_snapshot.network_rtt_variance_ms)
+                         << " fec_loss_per_mille=" << measurement(telemetry_snapshot.packet_loss_per_mille)
+                         << " client_decode_ms=" << measurement(telemetry_snapshot.client_decode_ms)
+                         << " client_presentation_ms=" << measurement(telemetry_snapshot.client_presentation_ms)
                          << " explanation=\"" << assessment.explanation << "\"";
-        session->core_last_diagnostic_at = diagnostic_now;
       }
 
       auto wan = session->config.monitor.wan;
