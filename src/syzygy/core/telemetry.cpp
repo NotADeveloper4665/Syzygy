@@ -92,7 +92,7 @@ bool valid_policy(const telemetry_policy& policy) noexcept {
          valid_threshold(policy.client_decode_threshold_ms) &&
          valid_threshold(policy.client_presentation_threshold_ms) &&
          policy.minimum_observed_stages >= 1 &&
-         policy.minimum_observed_stages <= 8;
+         policy.minimum_observed_stages <= 6;
 }
 
 pipeline_assessment assess_pipeline(
