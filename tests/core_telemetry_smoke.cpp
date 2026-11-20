@@ -66,6 +66,12 @@ int main() {
   assert(network.classification == bottleneck::network_bound);
 
   sample.network_rtt_variance_ms = 1.0;
+  sample.client_media_jitter_ms = 7.0;
+  sample.media_jitter_observed_at = now;
+  auto media_jitter = syzygy::core::assess_pipeline(sample, policy, now);
+  assert(media_jitter.classification == bottleneck::network_bound);
+
+  sample.client_media_jitter_ms = 1.0;
   sample.packet_loss_per_mille = 50.0;
   sample.loss_observed_at = now;
   auto loss = syzygy::core::assess_pipeline(sample, policy, now);
@@ -98,6 +104,16 @@ int main() {
   sample.network_observed_at = now - 4s;
   auto stale_network = syzygy::core::assess_pipeline(sample, policy, now);
   assert(stale_network.classification == bottleneck::insufficient_data);
+
+  sample = {};
+  sample.observed_at = now;
+  sample.capture_ms = 1.0;
+  sample.encode_ms = 1.0;
+  sample.send_queue_ms = 1.0;
+  sample.client_media_jitter_ms = 12.0;
+  sample.media_jitter_observed_at = now - 4s;
+  auto stale_media_jitter = syzygy::core::assess_pipeline(sample, policy, now);
+  assert(stale_media_jitter.classification == bottleneck::insufficient_data);
 
   sample = {};
   sample.observed_at = now;
