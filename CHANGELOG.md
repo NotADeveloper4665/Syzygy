@@ -13,6 +13,7 @@ Notable repository changes are recorded here; entries do not imply unverified ru
 - Added stable string names for bottleneck classifications and confidence levels.
 - Added optional client telemetry v2 parsing for RFC 3550 RTP inter-arrival jitter, separate from ENet RTT variance.
 - Kept missing capture timestamps unavailable, reset reused capture-duration metadata, and timestamped X11 SHM frames after the capture reply.
+- Carried the unadjusted source timestamp through NVENC and bounded FFmpeg PTS correlation separately from the cadence-adjusted Moonlight latency-header timestamp.
 - Tightened client feedback frame bounds to the latest frame whose host send path has completed.
 - Expanded the T1600 collector with encoder utilization, NIC/qdisc counters, and kernel GPU/display logs; physical acceptance remains pending.
 
