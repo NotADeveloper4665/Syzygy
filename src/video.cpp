@@ -1287,7 +1287,7 @@ namespace video {
           // trim allocated but unused portion of the pool based on timeouts
           trim_imgs();
           img_out->frame_timestamp.reset();
-        img_out->capture_duration_ms.reset();
+          img_out->capture_duration_ms.reset();
           return true;
         } else {
           // sleep and retry if image pool is full
@@ -2076,7 +2076,7 @@ namespace video {
       BOOST_LOG(info) << "Input only session, video will not be captured."sv;
 
       // Encode the dummy img only once
-      if (encode(frame_nr++, *session, packets, session_owner, std::chrono::steady_clock::now())) {
+      if (encode(frame_nr++, *session, packets, session_owner, std::nullopt)) {
         BOOST_LOG(error) << "Could not encode dummy video packet"sv;
         return;
       }
@@ -2137,15 +2137,14 @@ namespace video {
             // it is not a measurement of the capture backend's own execution time.
             capture_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - *frame_timestamp).count();
           }
-          if (!frame_timestamp) {
-            if (!missing_frame_timestamp_warning_logged) {
-              BOOST_LOG(warning) << "Encoder received image without frame timestamp; substituting steady_clock::now()"sv;
-              missing_frame_timestamp_warning_logged = true;
-            }
-            frame_timestamp = std::chrono::steady_clock::now();
+          if (!frame_timestamp && !missing_frame_timestamp_warning_logged) {
+            BOOST_LOG(warning) << "Encoder received image without frame timestamp; capture-age and host-pipeline telemetry will remain unavailable"sv;
+            missing_frame_timestamp_warning_logged = true;
           }
 
-          auto current_timestamp = *frame_timestamp;
+          // Use a local scheduler timestamp when a backend cannot provide a
+          // source timestamp, but never publish that fallback as capture time.
+          const auto current_timestamp = frame_timestamp.value_or(std::chrono::steady_clock::now());
           auto time_diff = current_timestamp - encode_frame_timestamp;
 
           // If new frame comes in way too fast, just drop
@@ -2162,7 +2161,7 @@ namespace video {
               std::chrono::steady_clock::now() - conversion_started_at).count();
 
           if (time_diff < frame_variation_threshold) {
-            *frame_timestamp = encode_frame_timestamp;
+            if (frame_timestamp) *frame_timestamp = encode_frame_timestamp;
           } else {
             encode_frame_timestamp = current_timestamp;
           }
@@ -2451,6 +2450,7 @@ namespace video {
       auto pull_free_image_callback = [&img](std::shared_ptr<platf::img_t> &img_out) -> bool {
         img_out = img;
         img_out->frame_timestamp.reset();
+        img_out->capture_duration_ms.reset();
         return true;
       };
 
