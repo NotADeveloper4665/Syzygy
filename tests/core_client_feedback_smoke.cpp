@@ -56,6 +56,7 @@ int main() {
   assert(fec_report);
   assert(fec_report->frame_index == 7);
   assert(fec_report->lost_data_packets == 2);
+  assert(fec_report->total_data_packets == 10);
   assert(fec_report->loss_per_mille == 200.0);
   assert(!parse_fec_frame_status(std::string_view(fec).substr(0, 20)));
 
