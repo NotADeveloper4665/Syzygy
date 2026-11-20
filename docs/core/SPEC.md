@@ -1,13 +1,13 @@
 # Syzygy Core — Product and Feature Specification
 
-Status: Draft implementation baseline  
+Status: Draft implementation baseline; milestone 0 complete, milestone 1 instrumentation in progress  
 Scope: Core platform foundation and Adaptive Pipeline Director (APD) milestones 0–1
 
 ## 1. Problem
 
-A remote game stream is a pipeline, not a bitrate slider. Capture, frame scheduling, encoding, packetization, network delivery, client decoding, and presentation can each contribute latency or instability. A single symptom such as low FPS does not identify which stage is responsible.
+A remote game stream is a pipeline, not a bitrate slider. Capture, frame scheduling, conversion, encoding, packetization, network delivery, client decoding, and presentation can each contribute latency or instability. A single symptom such as low FPS does not identify which stage is responsible.
 
-Syzygy already contains streaming statistics, frame timestamps, per-session WAN state, packet-loss feedback logging, FEC handling, and bitrate/pacing behavior. Those mechanisms are distributed and do not yet provide one normalized, session-scoped diagnostic view.
+Syzygy already contains streaming statistics, frame timestamps, per-session WAN state, packet-loss feedback, FEC handling, and bitrate/pacing behavior. Those mechanisms are distributed and do not yet provide one normalized, session-scoped diagnostic view.
 
 ## 2. Product direction
 
@@ -20,7 +20,7 @@ The streaming engine remains the authority for capture, encoding, packet transpo
 - Define a normalized telemetry model for one streaming session.
 - Represent unknown or unavailable measurements explicitly; never substitute zero.
 - Validate numeric ranges and reject malformed samples.
-- Reject stale samples for live assessment.
+- Reject stale measurements independently by source group.
 - Classify the strongest evidenced bottleneck using deterministic rules.
 - Produce an explanation and confidence level with every assessment.
 - Default to observe-only behavior.
@@ -31,51 +31,58 @@ The streaming engine remains the authority for capture, encoding, packet transpo
 
 - Changing bitrate, FEC, resolution, frame rate, encoder, capture backend, or packet pacing.
 - Restarting or recovering processes.
-- Reading client decode/presentation metrics that the current protocol does not provide.
+- Treating standard Moonlight feedback as a source of client decode/presentation latency when it does not provide those values.
 - Claiming host-side send latency is equivalent to client display latency.
-- Replacing or bypassing existing WAN pacing and wan_state behavior.
+- Replacing or bypassing existing WAN pacing and `wan_state` behavior.
 - Persisting telemetry or collecting personally identifying usage data.
-- Introducing a new wire protocol or client extension.
+- Enabling a new client extension or requiring a client update. A strict host-side parser contract may be present for a future optional Syzygy extension, but no client behavior is activated by this repository change.
 
 ## 5. Telemetry contract
 
-A sample belongs to exactly one session and one monotonic observation time. Measurements are optional and use explicit units:
+Measurements are optional and use explicit units. Host, network, loss, and client groups carry independent monotonic observation timestamps so a fresh video frame cannot make old feedback appear current.
 
 | Field | Unit | Valid range | Source status |
 | --- | --- | --- | --- |
-| Capture-to-encoder age | milliseconds | 0–5000 | Wired from the captured image's monotonic frame timestamp to encoder consumption; includes latest-slot/mailbox wait and is not pure capture-backend execution time |
-| Encode latency | milliseconds | 0–5000 | NVENC API submission-to-matching-output latency wired; AVCodec/FFmpeg unavailable pending frame correlation |
+| Capture-to-encoder age | milliseconds | 0–5000 | Wired from image frame timestamp to encoder consumption; includes latest-slot/mailbox wait |
+| Capture backend duration | milliseconds | 0–5000 | Wired for Linux KMS and X11 snapshot paths; other backends remain unavailable |
+| Conversion duration | milliseconds | 0–5000 | Wired around `session->convert()` in async and synchronized paths |
+| Encode latency | milliseconds | 0–5000 | NVENC API-to-matching-output and FFmpeg PTS-correlated submission-to-output wired |
 | Send queue latency | milliseconds | 0–5000 | Internal packet queue wait from publication to broadcaster dequeue; excludes network send |
-| Combined host pipeline latency | milliseconds | 0–5000 | Wired from captured-frame timestamp to broadcaster processing point; aggregate only, not stage-isolated |
-| Network RTT | milliseconds | 0–5000 | No verified runtime adapter |
-| Network jitter | milliseconds | 0–5000 | No verified runtime adapter |
-| Packet loss | per mille | 0–1000 | Existing client loss packet is count/time, not a verified rate |
-| Client decode latency | milliseconds | 0–5000 | Not currently available through inspected Moonlight feedback path |
-| Client presentation latency | milliseconds | 0–5000 | Not currently available through inspected Moonlight feedback path |
+| Combined host pipeline latency | milliseconds | 0–5000 | Captured-frame timestamp to broadcaster observation; aggregate only |
+| Control-channel RTT | milliseconds | 0–5000 | ENet peer smoothed RTT sampled with a low-rate transport ping |
+| Control-channel RTT variance | milliseconds | 0–5000 | ENet RTT-variance estimator; path-variation proxy, not media packet jitter |
+| FEC-reported data loss | per mille | 0–1000 | Per-block denominator from Moonlight `SS_FRAME_FEC_STATUS`; reports only when a block required recovery |
+| Legacy loss count / interval | count / milliseconds | count >= 0; interval 1–60000 | Raw legacy feedback retained; no rate inferred |
+| Client decode latency | milliseconds | 0–5000 | Optional Syzygy `0x5506` receiver; no client sender in this repository |
+| Client presentation queue / render / total | milliseconds | 0–5000 | Optional Syzygy `0x5506` receiver; not physical display latency |
 
-A missing measurement means unavailable, not zero. All time values use steady_clock for age calculations. Samples older than the configured freshness window are stale and cannot drive an assessment.
+A missing measurement means unavailable, not zero. All durations use monotonic clocks at the source. Host, network, loss, and client timestamps are validated and aged independently.
 
 ## 6. Classification requirements
 
-- capture_bound: capture-to-encoder age is elevated while encode and send queue are not elevated.
-- encode_bound: encode latency is elevated relative to its configured threshold.
-- network_bound: send queue latency is elevated, or complete network measurements show congestion.
-- client_bound: reserved for future client-side decode/presentation telemetry; must not be emitted until such telemetry is supplied and validated.
-- healthy: enough fresh measurements exist and none cross a threshold.
-- insufficient_data: measurements are missing, stale, or contradictory.
-- mixed: two or more stages are elevated without enough evidence to distinguish them.
+- `capture_bound`: capture backend duration or capture-to-encoder age is elevated, with enough fresh context to isolate the capture path.
+- `conversion_bound`: image conversion duration is elevated with sufficient stage coverage.
+- `encode_bound`: NVENC or FFmpeg submission-to-output latency is elevated with sufficient stage coverage.
+- `sender_queue_bound`: internal encoded-packet queue wait is elevated; this is host sender pressure, not network transit.
+- `network_bound`: fresh control-path RTT/variance or client FEC-reported block loss is elevated. RTT variance is not one-way media jitter.
+- `client_bound`: reserved for validated client decode/presentation feedback from the optional Syzygy extension; no ordinary client currently supplies it.
+- `host_pipeline_pressure`: aggregate host timing is elevated but detailed stages are unavailable; low confidence only.
+- `healthy`: fresh capture, encode, sender-queue, and network measurements exist and none cross a threshold.
+- `insufficient_data`: measurements are missing, stale, invalid, or do not provide enough independent context.
+- `mixed`: two or more independently measured stages are elevated without enough evidence to isolate one.
 
-A classification must include the measurements that triggered it, an explanation, and a confidence level.
+A classification must include the measurements that triggered it, an explanation, and a confidence level. Aggregate host timing overlaps detailed host stages and is never counted as a second independent bottleneck.
 
 ## 7. Safety requirements
 
-- Observe-only is the only supported mode in milestone 0.
+- Observe-only is the only supported runtime mode in these milestones.
 - No assessment may mutate streaming configuration or session state.
 - No global/static controller state.
 - No stale or malformed sample may trigger a recommendation.
 - Thresholds are explicit policy inputs with validated bounds.
-- Runtime integration must be opt-in and fail closed when telemetry is unavailable.
+- Runtime integration must fail closed when telemetry is unavailable.
 - Diagnostics must not include pairing phrases, keys, certificates, or credentials.
+- Existing WAN pacing/FEC remains the only transport controller.
 
 ## 8. Acceptance criteria
 
@@ -83,21 +90,25 @@ A classification must include the measurements that triggered it, an explanation
 | --- | --- | --- |
 | CORE-AC-01 | Missing values remain distinguishable from measured zero | Unit tests |
 | CORE-AC-02 | Out-of-range and non-finite measurements are rejected | Unit tests |
-| CORE-AC-03 | Stale samples produce insufficient-data assessment | Unit tests |
-| CORE-AC-04 | Capture, encode, and network bottlenecks classify deterministically | Unit tests |
+| CORE-AC-03 | Stale source groups produce insufficient-data assessment | Unit tests |
+| CORE-AC-04 | Capture, conversion, encode, sender-queue, and network bottlenecks classify deterministically | Unit tests |
 | CORE-AC-05 | Multiple elevated stages classify as mixed | Unit tests |
-| CORE-AC-06 | Client-bound classification is impossible without client telemetry | Unit tests |
+| CORE-AC-06 | Client-bound classification requires explicit validated client telemetry | Unit tests |
 | CORE-AC-07 | Assessment contains explanation and confidence | Unit tests |
 | CORE-AC-08 | Observe-only assessment cannot mutate stream settings | API/design review and tests |
 | CORE-AC-09 | Telemetry state is session-scoped | API/design review and tests |
 | CORE-AC-10 | New source files are included in normal and test builds | Linux build and CI |
-| CORE-AC-11 | Runtime instrumentation source and units are documented | Adapter tests and code review |
+| CORE-AC-11 | Runtime instrumentation source, units, and timing boundaries are documented | Adapter tests and code review |
 | CORE-AC-12 | Target T1600 telemetry matches independent measurement | Hardware acceptance |
-| CORE-AC-13 | Combined host-pipeline timing is recorded per session without claiming a specific substage | Adapter review and smoke test |
-| CORE-AC-14 | NVENC API-to-output timing is recorded only for a matching frame index and is not described as pure GPU execution time | Packet adapter review and tests |
-| CORE-AC-15 | Capture-to-encoder age is attached only to a frame-matched encoded output and remains unavailable without a valid source timestamp | Packet adapter review and tests |
-| CORE-AC-15 | Internal packet queue wait is recorded from queue publication to broadcaster dequeue, separately from network transit | Packet adapter review and tests |
-| CORE-AC-16 | Aggregate host timing does not count as an independent stage when detailed stage telemetry is present | Classifier regression tests |
+| CORE-AC-13 | Combined host-pipeline timing is recorded without claiming a specific substage | Adapter review and smoke test |
+| CORE-AC-14 | NVENC timing is attached only to a matching frame index | Packet adapter review and tests |
+| CORE-AC-15 | Capture-to-encoder age is attached only to a frame-matched output and remains unavailable without a valid source timestamp | Packet adapter review and tests |
+| CORE-AC-16 | Internal packet queue wait is recorded separately from network transit | Packet adapter review and tests |
+| CORE-AC-17 | Linux KMS/X11 capture callback and conversion durations have verified boundaries | Adapter review and smoke test |
+| CORE-AC-18 | FFmpeg output timing is correlated by PTS with bounded pending state and no current-frame fallback | Correlator tests and code review |
+| CORE-AC-19 | RTT/variance provenance is explicit and not mislabeled as media jitter | Source registry and code review |
+| CORE-AC-20 | FEC loss rate uses a verified per-block denominator; legacy count/time remains raw | Parser tests |
+| CORE-AC-21 | Client feedback parser rejects malformed, stale, and out-of-window reports | Parser tests and code review |
 
 ## 9. Rollout
 
@@ -107,17 +118,23 @@ A classification must include the measurements that triggered it, an explanation
 4. Run observe-only on real sessions and compare against independent measurements.
 5. Specify and review automatic actions separately. No automatic control is enabled by this document.
 
-## 10. Verified runtime adapter (milestone 1)
+## 10. Verified runtime adapters
 
-The video broadcaster already computes `frame_processing_latency` from `packet->frame_timestamp` to the point immediately before packet preparation and transmission. It is quantized in 0.1 ms units for the Moonlight frame header. Core stores this as `host_pipeline_ms` on the owning `session_t`, converting the transmitted value back to milliseconds.
+The video broadcaster computes the existing Moonlight `frame_processing_latency` from `packet->frame_timestamp` to the point immediately before packet header construction. It is quantized in 0.1 ms units for the Moonlight frame header. Core stores this as `host_pipeline_ms` on the owning `session_t`.
 
-This is a combined host-side measurement. It includes work between the original frame timestamp and the broadcaster observation point; it does not separate capture, conversion, encoder execution, packet queue wait, or client display time. It must never be relabeled as encode latency, capture latency, or end-to-end latency. It is session-owned and observe-only.
+The capture-to-encoder age is attached to the encoded frame only when NVENC frame index or FFmpeg PTS correlation succeeds. Linux KMS and X11 snapshot callbacks separately measure their own callback duration. Conversion is timed around the actual conversion call.
 
-The existing loss feedback packet remains count plus elapsed milliseconds and is not converted to a loss percentage. RTT, jitter, and client decode/presentation remain unavailable until a verified source exists.
+NVENC timing is API-entry to matching output availability. FFmpeg timing is successful `avcodec_send_frame()` submission to the matching PTS output from `avcodec_receive_packet()`. Both include backend buffering/driver wait and are not pure GPU execution time. FFmpeg pending correlation is bounded to 256 frames; missing or evicted PTS metadata remains unavailable.
+
+The shared packet queue wait is measured from publication to broadcaster dequeue. It is not network transit. Network RTT and RTT variance come from the owning ENet control peer; RTT variance is a control-path variation proxy, not media-packet jitter. Client FEC status `0x5502` supplies a per-block loss denominator for blocks requiring recovery. Legacy loss count and interval are retained without a derived rate.
+
+The optional Syzygy client telemetry receiver `0x5506` accepts only the documented v1 payload and a recent host frame index. It is host-side only in this repository; no client sender is included, so ordinary sessions still report client decode/presentation as unavailable.
 
 ## 11. Open questions
 
-- Which client protocol extension, if any, can safely report decode and presentation timing?
-- What host APIs provide reliable capture and encoder stage timings across NVENC, VAAPI, and software encoding?
+- Which approved client implementation will send the optional decode/presentation feedback extension, and can its decoder/render APIs provide stable duration boundaries?
+- What source can provide media-path inter-arrival jitter separately from ENet control RTT variance?
+- How should packetizer/FEC duration and socket submission/error telemetry be separated from sender queue wait?
+- Which host APIs provide comparable capture and encoder stage timings across KMS, X11, NVENC, VAAPI, and software encoding?
 - Can the existing WAN feedback controller be reused behind a Core policy interface, or should it remain an engine-owned actuator?
 - What thresholds should be calibrated per encoder/backend rather than globally?
