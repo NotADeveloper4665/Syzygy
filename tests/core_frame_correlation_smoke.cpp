@@ -22,6 +22,7 @@ int main() {
   frame_timing_record second;
   second.pts = 101;
   second.submitted_at = now + std::chrono::milliseconds(1);
+  second.frame_timestamp = now - std::chrono::milliseconds(2); // cadence-adjusted wire timestamp
   second.core_frame_timestamp = now - std::chrono::milliseconds(4);
   second.capture_ms = 4.0;
   second.conversion_ms = 2.0;
@@ -38,6 +39,7 @@ int main() {
   auto reordered = correlator.take(101);
   assert(reordered && reordered->pts == 101);
   assert(reordered->capture_ms && *reordered->capture_ms == 4.0);
+  assert(reordered->frame_timestamp && *reordered->frame_timestamp == now - std::chrono::milliseconds(2));
   assert(reordered->core_frame_timestamp && *reordered->core_frame_timestamp == now - std::chrono::milliseconds(4));
   assert(reordered->conversion_ms && *reordered->conversion_ms == 2.0);
 
