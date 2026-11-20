@@ -12,8 +12,10 @@
 namespace syzygy::core {
 
 // Metadata submitted with an AVFrame and recovered only by matching the
-// encoder output packet's PTS. Never substitute the currently submitted
-// frame's metadata for a delayed or reordered output packet.
+// encoder output packet's PTS. frame_timestamp preserves the existing
+// cadence-adjusted wire-header timestamp; core_frame_timestamp preserves the
+// unadjusted source capture timestamp. Never substitute current-frame metadata
+// for a delayed or reordered output packet.
 struct frame_timing_record {
   std::int64_t pts {};
   std::chrono::steady_clock::time_point submitted_at {};
