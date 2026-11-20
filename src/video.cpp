@@ -2407,6 +2407,7 @@ namespace video {
           }
 
           std::optional<std::chrono::steady_clock::time_point> frame_timestamp;
+          std::optional<std::chrono::steady_clock::time_point> core_frame_timestamp;
           std::optional<double> capture_ms;
           std::optional<double> capture_backend_ms;
           std::optional<double> conversion_ms;
