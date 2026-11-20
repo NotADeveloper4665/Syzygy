@@ -53,6 +53,10 @@ int main() {
   invalid_fec[15] = 11; // received data > total data
   assert(!parse_fec_frame_status(invalid_fec));
 
+  invalid_fec = fec;
+  invalid_fec[18] = 101; // protocol FEC percentage is bounded to 0..100
+  assert(!parse_fec_frame_status(invalid_fec));
+
   std::string legacy;
   le32(legacy, 3);
   le32(legacy, 50);
