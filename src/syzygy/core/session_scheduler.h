@@ -157,7 +157,7 @@ public:
     session.bytes += bytes;
     session.queue.push_back(scheduled_item {key, std::move(value), bytes, keyframe, now});
     global_frames_++;
-    global_bytes_++;
+    global_bytes_ += bytes;
     if (keyframe) {
       session.recovery_required = false;
     }
