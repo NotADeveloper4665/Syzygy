@@ -81,7 +81,10 @@ Specification: [LOW-LATENCY-PIPELINE-SPEC.md](LOW-LATENCY-PIPELINE-SPEC.md)
 - [ ] Add fair scheduling across sessions.
 - [ ] Define recovery for partially delivered frames.
 - [x] Add a generation-bound session lifetime lease/drain primitive and test teardown waiting for in-flight owners.
-- [ ] Replace raw session pointer packet channel data with the lifetime-safe handle and carry leases through encoder/FEC/sender jobs.
+- [x] Replace raw session pointer packet channel data with a generation-bound session handle and carry a lease with every encoded packet through broadcaster completion.
+- [x] Make AVCodec header replacements packet-owned so queued IDR packets do not reference a destroyed encoder session.
+- [x] Close session lease admission on stop and wait for packet owners to drain before session teardown.
+- [x] Clear queued packet owners when broadcast shuts down so stopped consumers cannot strand session leases.
 
 ### Phase D — early slice/block delivery
 - [ ] Verify Linux NVENC and FFmpeg slice-output support and buffer lifetimes.

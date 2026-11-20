@@ -275,3 +275,30 @@ an in-flight lease across teardown and verifies new leases are rejected until
 the original owner releases. This is still an integration primitive; encoder,
 FEC-block and sender jobs must actually carry leases for the fence to protect
 the runtime.
+
+
+## 12. First runtime ownership integration (2026-11-20)
+
+The encoder-to-broadcaster packet path now uses a generation-bound
+`syzygy::core::session_handle` instead of `void *channel_data`:
+
+- Each live stream session receives a unique video generation and a shared
+  lifetime fence.
+- The video capture thread passes a strong session owner and generation into
+  the encoder path.
+- Every encoded packet acquires a move-only lease before it is published.
+  The packet retains both the strong session owner and lease until broadcaster
+  processing completes or the packet is discarded.
+- The broadcaster validates the owner and generation before accessing session
+  state, and discards packets after the session enters STOPPING/STOPPED.
+- AVCodec SPS/VPS replacement data is copied into each IDR packet, removing
+  another pointer from the packet to encoder-session-owned memory.
+- Session shutdown closes lease admission and waits for all packet leases to
+  drain after the video thread exits.
+- Broadcast shutdown stops and clears the shared video queue, releasing any
+  queued packet leases whose consumer will no longer run.
+
+This is a first ownership-safety slice, not yet the per-session scheduler
+integration. The legacy shared queue and single serialized broadcaster remain.
+The queue's existing overflow behavior still clears queued frames; that policy
+must be replaced separately with protocol-safe admission.

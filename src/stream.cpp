@@ -1339,6 +1339,12 @@ namespace stream {
   void videoBroadcastThread(udp::socket &sock) {
     auto shutdown_event = mail::man->event<bool>(mail::broadcast_shutdown);
     auto packets = mail::man->queue<video::packet_t>(mail::video_packets);
+    auto broadcaster_exit_guard = util::fail_guard([&]() {
+      shutdown_event->raise(true);
+      packets->stop();
+      packets->clear();
+    });
+
     auto video_epoch = std::chrono::steady_clock::now();
 
     // Video traffic is sent on this thread
@@ -1747,6 +1753,7 @@ namespace stream {
     }
 
     shutdown_event->raise(true);
+    broadcaster_exit_guard.disable();
   }
 
   void audioBroadcastThread(udp::socket &sock) {
@@ -1923,6 +1930,7 @@ namespace stream {
 
     // Minimize delay stopping video/audio threads
     video_packets->stop();
+    video_packets->clear();
     audio_packets->stop();
 
     ctx.message_queue_queue->stop();

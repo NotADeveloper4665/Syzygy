@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <utility>
 #include <thread>
+#include <memory>
+#include <src/thread_safe.h>
 
 #include <src/syzygy/core/pipeline_primitives.h>
 
@@ -70,5 +72,42 @@ int main() {
   assert(drained.load());
   assert(lifetime.outstanding() == 0);
   assert(!lifetime.acquire(9));
+
+  // A packet handle keeps the session object alive and carries a lease that
+  // prevents teardown until queued/in-flight ownership is released.
+  auto session_owner = std::make_shared<int>(42);
+  std::weak_ptr<int> weak_owner = session_owner;
+  auto session_fence = std::make_shared<session_lifetime>(77);
+  session_handle handle {session_owner, session_fence, 77};
+  session_owner.reset();
+  auto packet_lease = handle.acquire();
+  assert(packet_lease && packet_lease->generation() == 77);
+  auto packet_handle = handle;
+  handle = {};
+  assert(!weak_owner.expired());
+  session_fence->close();
+  assert(!packet_handle.acquire());
+  packet_lease->release();
+  packet_handle = {};
+  assert(weak_owner.expired());
+
+  // Clearing a stopped queue destroys queued packet owners and releases their
+  // leases, allowing session teardown to complete during broadcaster shutdown.
+  auto queue_fence = std::make_shared<session_lifetime>(88);
+  struct queued_lease {
+    session_lifetime::lease value;
+    explicit queued_lease(session_lifetime::lease &&lease): value {std::move(lease)} {}
+  };
+  safe::queue_t<std::unique_ptr<queued_lease>> packet_queue {4};
+  auto queued_lease_value = queue_fence->acquire(88);
+  assert(queued_lease_value);
+  packet_queue.raise(std::make_unique<queued_lease>(std::move(*queued_lease_value)));
+  queue_fence->close();
+  assert(queue_fence->outstanding() == 1);
+  packet_queue.stop();
+  packet_queue.clear();
+  assert(queue_fence->outstanding() == 0);
+  queue_fence->close_and_wait();
+
   return 0;
 }

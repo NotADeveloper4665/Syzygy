@@ -332,6 +332,15 @@ namespace safe {
       _cv.notify_all();
     }
 
+
+    // Release queued owners after producers have been stopped. This is used
+    // during broadcast teardown so packet-held session leases cannot strand
+    // session shutdown waiting for a consumer that has already exited.
+    void clear() {
+      std::lock_guard lg {_lock};
+      _queue.clear();
+    }
+
     [[nodiscard]] bool running() const {
       return _continue;
     }
