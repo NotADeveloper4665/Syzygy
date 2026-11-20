@@ -140,7 +140,6 @@ pipeline_assessment assess_pipeline(
                                 static_cast<unsigned int>(network_observed) +
                                 static_cast<unsigned int>(client_observed);
 
-  const auto capture_value = sample.capture_backend_ms ? sample.capture_backend_ms : sample.capture_ms;
   const bool capture = capture_observed &&
       (elevated(sample.capture_backend_ms, policy.capture_backend_threshold_ms) ||
        elevated(sample.capture_ms, policy.capture_threshold_ms));
