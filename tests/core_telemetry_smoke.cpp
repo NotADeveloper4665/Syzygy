@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <limits>
@@ -78,6 +79,9 @@ int main() {
   // A recovery-triggered FEC block is diagnostic evidence, not a stream-wide
   // loss rate and cannot independently elevate the network classification.
   assert(loss.classification == bottleneck::healthy);
+  assert(std::any_of(loss.evidence.begin(), loss.evidence.end(), [](const auto& item) {
+    return item.find("FEC report") != std::string::npos;
+  }));
 
   sample.client_media_jitter_ms.reset();
   sample.media_jitter_observed_at = {};
