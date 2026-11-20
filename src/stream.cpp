@@ -367,6 +367,7 @@ namespace stream {
     syzygy::core::telemetry_sample core_telemetry;
     std::chrono::steady_clock::time_point core_last_diagnostic_at {};
     std::chrono::steady_clock::time_point core_last_enet_ping_at {};
+    std::uint32_t core_last_started_frame_index {};
     std::uint32_t core_last_sent_frame_index {};
     std::uint32_t core_last_client_feedback_frame {};
     std::deque<std::pair<std::uint32_t, std::uint8_t>> core_fec_report_keys;
@@ -1000,9 +1001,9 @@ namespace stream {
       const auto key = std::make_pair(report->frame_index, report->block_index);
       {
         std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
-        if (session->core_last_sent_frame_index == 0 ||
-            report->frame_index > session->core_last_sent_frame_index ||
-            session->core_last_sent_frame_index - report->frame_index > 512 ||
+        if (session->core_last_started_frame_index == 0 ||
+            report->frame_index > session->core_last_started_frame_index ||
+            session->core_last_started_frame_index - report->frame_index > 512 ||
             std::find(session->core_fec_report_keys.begin(), session->core_fec_report_keys.end(), key) !=
                 session->core_fec_report_keys.end()) {
           return;
@@ -1898,6 +1899,14 @@ namespace stream {
           }
 
           frame_network_latency_logger.second_point_now_and_log();
+
+          // FEC recovery feedback can arrive as soon as this block is received,
+          // before later blocks of the same frame have finished sending.
+          if (blockIndex == 0 && frame_index > 0 &&
+              frame_index <= std::numeric_limits<std::uint32_t>::max()) {
+            std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
+            session->core_last_started_frame_index = static_cast<std::uint32_t>(frame_index);
+          }
 
           BOOST_LOG(verbose) << "Sent Frame seq ["sv << packet->frame_index() << "] pts ["sv << timestamp
                              << "] shards ["sv << shards.size() << "/"sv << shards.percentage << "%]"sv
