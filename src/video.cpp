@@ -447,7 +447,7 @@ namespace video {
 
     config_t config;
     int frame_nr;
-    void *channel_data;
+    syzygy::core::session_handle session;
   };
 
   struct sync_session_t {
@@ -1413,7 +1413,23 @@ namespace video {
     }
   }
 
-  int encode_avcodec(int64_t frame_nr, avcodec_encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, void *channel_data, std::optional<std::chrono::steady_clock::time_point> frame_timestamp, std::optional<double> capture_ms) {
+  bool attach_session_owner(packet_raw_t &packet, const syzygy::core::session_handle &session_owner) {
+    if (session_owner.empty()) {
+      return true;  // Encoder capability probes do not belong to a live stream.
+    }
+
+    auto lease = session_owner.acquire();
+    if (!lease) {
+      BOOST_LOG(debug) << "Rejecting encoded packet because its session generation is closing";
+      return false;
+    }
+
+    packet.session = session_owner;
+    packet.session_lease.emplace(std::move(*lease));
+    return true;
+  }
+
+  int encode_avcodec(int64_t frame_nr, avcodec_encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, const syzygy::core::session_handle &session_owner, std::optional<std::chrono::steady_clock::time_point> frame_timestamp, std::optional<double> capture_ms) {
     auto &frame = session.device->frame;
     frame->pts = frame_nr;
 
@@ -1504,8 +1520,13 @@ namespace video {
         packet->capture_ms = capture_ms;
       }
 
-      packet->replacements = &session.replacements;
-      packet->channel_data = channel_data;
+      if (packet->is_idr()) {
+        packet->replacements.reserve(session.replacements.size());
+        for (const auto &replacement : session.replacements) {
+          packet->replacements.push_back({std::string(replacement.old), std::string(replacement._new)});
+        }
+      }
+      if (!attach_session_owner(*packet, session_owner)) return -1;
       packet->queued_at = std::chrono::steady_clock::now();
       packets->raise(std::move(packet));
     }
@@ -1513,7 +1534,7 @@ namespace video {
     return 0;
   }
 
-  int encode_nvenc(int64_t frame_nr, nvenc_encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, void *channel_data, std::optional<std::chrono::steady_clock::time_point> frame_timestamp, std::optional<double> capture_ms) {
+  int encode_nvenc(int64_t frame_nr, nvenc_encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, const syzygy::core::session_handle &session_owner, std::optional<std::chrono::steady_clock::time_point> frame_timestamp, std::optional<double> capture_ms) {
     const auto encode_started_at = std::chrono::steady_clock::now();
     auto encoded_frame = session.encode_frame(frame_nr);
     const auto encode_completed_at = std::chrono::steady_clock::now();
@@ -1527,7 +1548,7 @@ namespace video {
     }
 
     auto packet = std::make_unique<packet_raw_generic>(std::move(encoded_frame.data), encoded_frame.frame_index, encoded_frame.idr);
-    packet->channel_data = channel_data;
+    if (!attach_session_owner(*packet, session_owner)) return -1;
     packet->after_ref_frame_invalidation = encoded_frame.after_ref_frame_invalidation;
     packet->frame_timestamp = frame_timestamp;
     if (frame_nr == encoded_frame.frame_index) {
@@ -1540,11 +1561,11 @@ namespace video {
     return 0;
   }
 
-  int encode(int64_t frame_nr, encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, void *channel_data, std::optional<std::chrono::steady_clock::time_point> frame_timestamp, std::optional<double> capture_ms = std::nullopt) {
+  int encode(int64_t frame_nr, encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, const syzygy::core::session_handle &session_owner, std::optional<std::chrono::steady_clock::time_point> frame_timestamp, std::optional<double> capture_ms = std::nullopt) {
     if (auto avcodec_session = dynamic_cast<avcodec_encode_session_t *>(&session)) {
-      return encode_avcodec(frame_nr, *avcodec_session, packets, channel_data, frame_timestamp, capture_ms);
+      return encode_avcodec(frame_nr, *avcodec_session, packets, session_owner, frame_timestamp, capture_ms);
     } else if (auto nvenc_session = dynamic_cast<nvenc_encode_session_t *>(&session)) {
-      return encode_nvenc(frame_nr, *nvenc_session, packets, channel_data, frame_timestamp, capture_ms);
+      return encode_nvenc(frame_nr, *nvenc_session, packets, session_owner, frame_timestamp, capture_ms);
     }
 
     return -1;
@@ -1974,7 +1995,7 @@ namespace video {
     std::unique_ptr<platf::encode_device_t> encode_device,
     safe::signal_t &reinit_event,
     const encoder_t &encoder,
-    void *channel_data
+    const syzygy::core::session_handle &session_owner
   ) {
     auto session = make_encode_session(disp.get(), encoder, config, disp->width, disp->height, std::move(encode_device));
     if (!session) {
@@ -2027,7 +2048,7 @@ namespace video {
       BOOST_LOG(info) << "Input only session, video will not be captured."sv;
 
       // Encode the dummy img only once
-      if (encode(frame_nr++, *session, packets, channel_data, std::chrono::steady_clock::now())) {
+      if (encode(frame_nr++, *session, packets, session_owner, std::chrono::steady_clock::now())) {
         BOOST_LOG(error) << "Could not encode dummy video packet"sv;
         return;
       }
@@ -2118,7 +2139,7 @@ namespace video {
         }
       }
 
-      if (encode(frame_nr++, *session, packets, channel_data, frame_timestamp, capture_ms)) {
+      if (encode(frame_nr++, *session, packets, session_owner, frame_timestamp, capture_ms)) {
         BOOST_LOG(error) << "Could not encode video packet"sv;
         break;
       }
@@ -2359,7 +2380,7 @@ namespace video {
             frame_timestamp = img->frame_timestamp;
           }
 
-          if (encode(ctx->frame_nr++, *pos->session, ctx->packets, ctx->channel_data, frame_timestamp)) {
+          if (encode(ctx->frame_nr++, *pos->session, ctx->packets, ctx->session, frame_timestamp)) {
             BOOST_LOG(error) << "Could not encode video packet"sv;
             ctx->shutdown_event->raise(true);
 
@@ -2430,7 +2451,7 @@ namespace video {
   void capture_async(
     safe::mail_t mail,
     config_t &config,
-    void *channel_data
+    const syzygy::core::session_handle &session_owner
   ) {
     auto shutdown_event = mail->event<bool>(mail::shutdown);
 
@@ -2506,7 +2527,7 @@ namespace video {
         std::move(encode_device),
         ref->reinit_event,
         *ref->encoder_p,
-        channel_data
+        session_owner
       );
     }
   }
@@ -2514,13 +2535,13 @@ namespace video {
   void capture(
     safe::mail_t mail,
     config_t config,
-    void *channel_data
+    const syzygy::core::session_handle &session_owner
   ) {
     auto idr_events = mail->event<bool>(mail::idr);
 
     idr_events->raise(true);
     if (chosen_encoder->flags & PARALLEL_ENCODING) {
-      capture_async(std::move(mail), config, channel_data);
+      capture_async(std::move(mail), config, session_owner);
     } else {
       safe::signal_t join_event;
       auto ref = capture_thread_sync.ref();
@@ -2533,7 +2554,7 @@ namespace video {
         mail->event<input::touch_port_t>(mail::touch_port),
         config,
         1,
-        channel_data,
+        session_owner,
       });
 
       // Wait for join signal
@@ -2568,7 +2589,7 @@ namespace video {
 
     auto packets = mail::man->queue<packet_t>(mail::video_packets);
     while (!packets->peek()) {
-      if (encode(1, *session, packets, nullptr, {})) {
+      if (encode(1, *session, packets, {}, {})) {
         return -1;
       }
     }

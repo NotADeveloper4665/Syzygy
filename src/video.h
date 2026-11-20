@@ -4,6 +4,10 @@
  */
 #pragma once
 
+#include <string>
+
+#include "syzygy/core/pipeline_primitives.h"
+
 // local includes
 #include "input.h"
 #include "syzygy/wan.h"
@@ -260,8 +264,14 @@ namespace video {
       }
     };
 
-    std::vector<replace_t> *replacements = nullptr;
-    void *channel_data = nullptr;
+    struct owned_replace_t {
+      std::string old;
+      std::string _new;
+    };
+
+    std::vector<owned_replace_t> replacements;
+    syzygy::core::session_handle session;
+    std::optional<syzygy::core::session_lifetime::lease> session_lease;
     bool after_ref_frame_invalidation = false;
     std::optional<std::chrono::steady_clock::time_point> frame_timestamp;
     // Capture timestamp to encoder-consumption age; not pure capture-backend latency.
@@ -352,7 +362,7 @@ namespace video {
   void capture(
     safe::mail_t mail,
     config_t config,
-    void *channel_data
+    const syzygy::core::session_handle &session_owner
   );
 
   bool validate_encoder(encoder_t &encoder, bool expect_failure);

@@ -4,6 +4,8 @@
  */
 
 // standard includes
+#include <atomic>
+#include <cstdint>
 #include <fstream>
 #include <future>
 #include <queue>
@@ -349,8 +351,11 @@ namespace stream {
     control_server_t control_server;
   };
 
-  struct session_t {
+  struct session_t : std::enable_shared_from_this<session_t> {
     config_t config;
+
+    std::uint64_t video_generation {};
+    std::shared_ptr<syzygy::core::session_lifetime> video_lifetime;
 
     // Owned by this session; populated by the shared video broadcaster for
     // diagnostics. No control action consumes it in observe-only milestone 1.
@@ -1362,7 +1367,16 @@ namespace stream {
 
       frame_network_latency_logger.first_point_now();
 
-      auto session = (session_t *) packet->channel_data;
+      auto session = packet->session.owner_as<session_t>();
+      if (!session || !packet->session_lease ||
+          packet->session_lease->generation() != packet->session.generation()) {
+        BOOST_LOG(warning) << "Discarding video packet without a valid session lease";
+        continue;
+      }
+      const auto state = session->state.load(std::memory_order_acquire);
+      if (state == session::state_e::STOPPING || state == session::state_e::STOPPED) {
+        continue;
+      }
       const auto packet_dequeued_at = std::chrono::steady_clock::now();
       if (packet->queued_at.time_since_epoch().count() != 0) {
         session->core_telemetry.send_queue_ms = std::chrono::duration<double, std::milli>(packet_dequeued_at - packet->queued_at).count();
@@ -1385,10 +1399,10 @@ namespace stream {
       // We need to know the final frame size to calculate the last packet size, and we
       // must avoid matching replacements against the frame header or any other non-video
       // part of the payload.
-      if (packet->is_idr() && packet->replacements) {
-        for (auto &replacement : *packet->replacements) {
-          auto frame_old = replacement.old;
-          auto frame_new = replacement._new;
+      if (packet->is_idr() && !packet->replacements.empty()) {
+        for (auto &replacement : packet->replacements) {
+          auto frame_old = std::string_view {replacement.old};
+          auto frame_new = std::string_view {replacement._new};
 
           payload_with_replacements = replace(payload, frame_old, frame_new);
           payload = {(char *) payload_with_replacements.data(), payload_with_replacements.size()};
@@ -1986,7 +2000,7 @@ namespace stream {
     return -1;
   }
 
-  void videoThread(session_t *session) {
+  void videoThread(std::shared_ptr<session_t> session) {
     auto fg = util::fail_guard([&]() {
       session::stop(*session);
     });
@@ -1994,7 +2008,7 @@ namespace stream {
     while_starting_do_nothing(session->state);
 
     auto ref = broadcast.ref();
-    auto error = recv_ping(session, ref, socket_e::video, session->video.ping_payload, session->video.peer, config::stream.ping_timeout);
+    auto error = recv_ping(session.get(), ref, socket_e::video, session->video.ping_payload, session->video.peer, config::stream.ping_timeout);
     if (error < 0) {
       return;
     }
@@ -2004,7 +2018,8 @@ namespace stream {
     session->video.qos = platf::enable_socket_qos(ref->video_sock.native_handle(), address, session->video.peer.port(), platf::qos_data_type_e::video, session->config.videoQosType != 0);
 
     BOOST_LOG(debug) << "Start capturing Video"sv;
-    video::capture(session->mail, session->config.monitor, session);
+    video::capture(session->mail, session->config.monitor,
+                   syzygy::core::session_handle {session, session->video_lifetime, session->video_generation});
   }
 
   void audioThread(session_t *session) {
@@ -2030,6 +2045,7 @@ namespace stream {
 
   namespace session {
     std::atomic_uint running_sessions;
+    std::atomic_uint64_t next_video_generation {1};
     unsigned int active_count() { return running_sessions.load(std::memory_order_relaxed); }
 
     state_e state(session_t &session) {
@@ -2070,6 +2086,7 @@ namespace stream {
 
     void stop(session_t &session) {
       while_starting_do_nothing(session.state);
+      if (session.video_lifetime) session.video_lifetime->close();
       auto expected = state_e::RUNNING;
       auto already_stopping = !session.state.compare_exchange_strong(expected, state_e::STOPPING);
       if (already_stopping) {
@@ -2082,6 +2099,7 @@ namespace stream {
 
     void graceful_stop(session_t& session) {
       while_starting_do_nothing(session.state);
+      if (session.video_lifetime) session.video_lifetime->close();
       auto expected = state_e::RUNNING;
       auto already_stopping = !session.state.compare_exchange_strong(expected, state_e::STOPPING);
       if (already_stopping) {
@@ -2132,6 +2150,10 @@ namespace stream {
 
       BOOST_LOG(debug) << "Waiting for video to end..."sv;
       session.videoThread.join();
+      if (session.video_lifetime) {
+        BOOST_LOG(debug) << "Waiting for queued/in-flight video packets to release session leases..."sv;
+        session.video_lifetime->close_and_wait();
+      }
       BOOST_LOG(debug) << "Waiting for audio to end..."sv;
       session.audioThread.join();
       BOOST_LOG(debug) << "Waiting for control to end..."sv;
@@ -2206,7 +2228,7 @@ namespace stream {
       session.pingTimeout = std::chrono::steady_clock::now() + config::stream.ping_timeout;
 
       session.audioThread = std::thread {audioThread, &session};
-      session.videoThread = std::thread {videoThread, &session};
+      session.videoThread = std::thread {videoThread, session.shared_from_this()};
 
       BOOST_LOG(info) << "SYZYGY_SESSION_START " << reinterpret_cast<std::uintptr_t>(&session)
                       << " " << (session.config.monitor.videoFormat == 0 ? "H.264" : session.config.monitor.videoFormat == 1 ? "HEVC" : "AV1");
@@ -2242,6 +2264,8 @@ namespace stream {
 
     std::shared_ptr<session_t> alloc(config_t &config, rtsp_stream::launch_session_t &launch_session) {
       auto session = std::make_shared<session_t>();
+      session->video_generation = next_video_generation.fetch_add(1, std::memory_order_relaxed);
+      session->video_lifetime = std::make_shared<syzygy::core::session_lifetime>(session->video_generation);
 
       auto mail = std::make_shared<safe::mail_raw_t>();
 

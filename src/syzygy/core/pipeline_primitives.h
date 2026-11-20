@@ -261,4 +261,48 @@ private:
   std::shared_ptr<state> state_;
 };
 
+ 
+// A type-erased owner plus a generation-bound lease. The owner keeps the
+// session object alive; the lease prevents session-owned state from being
+// torn down while a queued or in-flight packet still uses it.
+class session_handle {
+public:
+  session_handle() = default;
+
+  template<class T>
+  session_handle(std::shared_ptr<T> owner,
+                 std::shared_ptr<session_lifetime> lifetime,
+                 std::uint64_t generation):
+      owner_ {std::move(owner)},
+      lifetime_ {std::move(lifetime)},
+      generation_ {generation} {}
+
+  bool empty() const noexcept {
+    return !owner_ && !lifetime_;
+  }
+
+  explicit operator bool() const noexcept {
+    return owner_ && lifetime_;
+  }
+
+  std::optional<session_lifetime::lease> acquire() const {
+    if (!*this) return std::nullopt;
+    return lifetime_->acquire(generation_);
+  }
+
+  template<class T>
+  std::shared_ptr<T> owner_as() const noexcept {
+    return std::static_pointer_cast<T>(owner_);
+  }
+
+  std::uint64_t generation() const noexcept {
+    return generation_;
+  }
+
+private:
+  std::shared_ptr<void> owner_;
+  std::shared_ptr<session_lifetime> lifetime_;
+  std::uint64_t generation_ {};
+};
+
 } // namespace syzygy::core
