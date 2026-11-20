@@ -240,6 +240,12 @@ public:
     return lease {state_};
   }
 
+  void close() {
+    std::lock_guard lock {state_->mutex};
+    state_->accepting = false;
+    if (state_->outstanding == 0) state_->cv.notify_all();
+  }
+
   void close_and_wait() {
     std::unique_lock lock {state_->mutex};
     state_->accepting = false;
