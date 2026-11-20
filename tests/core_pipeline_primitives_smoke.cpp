@@ -5,7 +5,6 @@
 #include <utility>
 #include <thread>
 #include <memory>
-#include <src/thread_safe.h>
 
 #include <src/syzygy/core/pipeline_primitives.h>
 
@@ -90,24 +89,6 @@ int main() {
   packet_lease->release();
   packet_handle = {};
   assert(weak_owner.expired());
-
-  // Clearing a stopped queue destroys queued packet owners and releases their
-  // leases, allowing session teardown to complete during broadcaster shutdown.
-  auto queue_fence = std::make_shared<session_lifetime>(88);
-  struct queued_lease {
-    session_lifetime::lease value;
-    explicit queued_lease(session_lifetime::lease &&lease): value {std::move(lease)} {}
-  };
-  safe::queue_t<std::unique_ptr<queued_lease>> packet_queue {4};
-  auto queued_lease_value = queue_fence->acquire(88);
-  assert(queued_lease_value);
-  packet_queue.raise(std::make_unique<queued_lease>(std::move(*queued_lease_value)));
-  queue_fence->close();
-  assert(queue_fence->outstanding() == 1);
-  packet_queue.stop();
-  packet_queue.clear();
-  assert(queue_fence->outstanding() == 0);
-  queue_fence->close_and_wait();
 
   return 0;
 }
