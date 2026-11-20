@@ -11,6 +11,10 @@ Notable repository changes are recorded here; entries do not imply unverified ru
 ### Syzygy Core / Adaptive Pipeline Director
 - Added rate-limited per-session structured pipeline diagnostics.
 - Added stable string names for bottleneck classifications and confidence levels.
+- Added optional client telemetry v2 parsing for RFC 3550 RTP inter-arrival jitter, separate from ENet RTT variance.
+- Kept missing capture timestamps unavailable, reset reused capture-duration metadata, and timestamped X11 SHM frames after the capture reply.
+- Tightened client feedback frame bounds to the latest frame whose host send path has completed.
+- Expanded the T1600 collector with encoder utilization, NIC/qdisc counters, and kernel GPU/display logs; physical acceptance remains pending.
 
 ### Development process
 - Introduced specification-led development artifacts: requirements, design, task tracking, and verification.
