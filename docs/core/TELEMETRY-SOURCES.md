@@ -46,7 +46,7 @@ Legacy `IDX_LOSS_STATS` is accepted only at its exact 32-byte size. Syzygy reads
 
 ### Client decode and presentation
 
-The optional Syzygy `0x5506` extension is specified in [CLIENT-TELEMETRY-PROTOCOL.md](CLIENT-TELEMETRY-PROTOCOL.md). The host parser validates v1/v2 magic, version, exact length, duration bounds, v2 jitter bounds, and a recent frame index using wrap-safe 32-bit serial arithmetic. V1 supplies decode/presentation; v2 additionally supplies RFC 3550 media inter-arrival jitter. This repository contains no client sender, so these values remain unavailable on ordinary sessions.
+The standard Moonlight `0x0204` Frame Stats message is marked unused in moonlight-common-c and is not a verified decode/presentation source. The optional Syzygy `0x5506` extension is specified in [CLIENT-TELEMETRY-PROTOCOL.md](CLIENT-TELEMETRY-PROTOCOL.md). The host parser validates v1/v2 magic, version, exact length, duration bounds, v2 jitter bounds, and a recent frame index using wrap-safe 32-bit serial arithmetic. V1 supplies decode/presentation; v2 additionally supplies RFC 3550 media inter-arrival jitter. This repository contains no client sender, so these values remain unavailable on ordinary sessions.
 
 ## Known but not connected
 
