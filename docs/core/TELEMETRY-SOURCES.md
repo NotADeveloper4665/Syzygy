@@ -46,13 +46,13 @@ Legacy `IDX_LOSS_STATS` is accepted only at its exact 32-byte size. Syzygy reads
 
 ### Client decode and presentation
 
-The optional Syzygy `0x5506` extension is specified in [CLIENT-TELEMETRY-PROTOCOL.md](CLIENT-TELEMETRY-PROTOCOL.md). The host parser validates its magic, version, exact length, duration bounds, and recent frame index. Existing Moonlight clients do not send it, and this repository contains no client sender; those fields therefore remain unavailable on ordinary sessions.
+The optional Syzygy `0x5506` extension is specified in [CLIENT-TELEMETRY-PROTOCOL.md](CLIENT-TELEMETRY-PROTOCOL.md). The host parser validates v1/v2 magic, version, exact length, duration bounds, v2 jitter bounds, and recent frame index. V1 supplies decode/presentation; v2 additionally supplies RFC 3550 media inter-arrival jitter. This repository contains no client sender, so these values remain unavailable on ordinary sessions.
 
 ## Known but not connected
 
 | Candidate | Why it is not mapped yet |
 | --- | --- |
-| Media-path packet jitter | ENet RTT variance is only a control-channel path-variation proxy; no verified RTP inter-arrival jitter source is currently connected |
+| Media-path packet jitter | A strict v2 host parser exists, but no compatible client sender is included in this repository; ordinary sessions still have no media inter-arrival jitter sample |
 | Packetizer/FEC duration | The shared broadcaster still combines packetization and FEC work; a dedicated stage boundary is required |
 | Socket submission duration and send errors | Must be measured separately from queue wait and remote network congestion |
 | Encoder in-flight count and output age | No backend-independent in-flight observation is connected yet |
