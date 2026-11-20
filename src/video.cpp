@@ -2644,7 +2644,7 @@ namespace video {
 
     auto packets = mail::man->queue<packet_t>(mail::video_packets);
     while (!packets->peek()) {
-      if (encode(1, *session, packets, {}, {})) {
+      if (encode(1, *session, packets, {}, {}, {})) {
         return -1;
       }
     }
