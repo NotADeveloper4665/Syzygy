@@ -264,6 +264,8 @@ namespace video {
     void *channel_data = nullptr;
     bool after_ref_frame_invalidation = false;
     std::optional<std::chrono::steady_clock::time_point> frame_timestamp;
+    // Capture timestamp to encoder-consumption age; not pure capture-backend latency.
+    std::optional<double> capture_ms;
     // NVENC API submission-to-output latency; absent without a verified boundary.
     std::optional<double> encode_ms;
     // Time immediately before publishing this packet to the shared broadcaster queue.
