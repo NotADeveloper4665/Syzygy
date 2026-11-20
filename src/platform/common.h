@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <string>
 
 // lib includes
@@ -380,6 +381,9 @@ namespace platf {
     std::int32_t row_pitch {};
 
     std::optional<std::chrono::steady_clock::time_point> frame_timestamp;
+    // Time spent inside the platform capture callback, when the backend can
+    // expose a reliable start/end boundary. Missing is not zero.
+    std::optional<double> capture_duration_ms;
 
     virtual ~img_t() = default;
   };

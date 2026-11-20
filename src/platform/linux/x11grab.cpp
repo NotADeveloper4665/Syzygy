@@ -515,6 +515,7 @@ namespace platf {
       }
       auto img = (x11_img_t *) img_out.get();
 
+      const auto capture_started_at = std::chrono::steady_clock::now();
       XImage *x_img {x11::GetImage(xdisplay.get(), xwindow, offset_x, offset_y, width, height, AllPlanes, ZPixmap)};
       img->frame_timestamp = std::chrono::steady_clock::now();
 
@@ -529,6 +530,8 @@ namespace platf {
         blend_cursor(xdisplay.get(), *img, offset_x, offset_y);
       }
 
+      img->capture_duration_ms = std::chrono::duration<double, std::milli>(
+          std::chrono::steady_clock::now() - capture_started_at).count();
       return capture_e::ok;
     }
 
@@ -646,14 +649,14 @@ namespace platf {
         BOOST_LOG(warning) << "X dimensions changed in SHM mode, request reinit"sv;
         return capture_e::reinit;
       } else {
+        const auto capture_started_at = std::chrono::steady_clock::now();
         auto img_cookie = xcb::shm_get_image_unchecked(xcb.get(), display->root, offset_x, offset_y, width, height, ~0, XCB_IMAGE_FORMAT_Z_PIXMAP, seg, 0);
-        auto frame_timestamp = std::chrono::steady_clock::now();
-
         xcb_img_t img_reply {xcb::shm_get_image_reply(xcb.get(), img_cookie, nullptr)};
         if (!img_reply) {
           BOOST_LOG(error) << "Could not get image reply"sv;
           return capture_e::reinit;
         }
+        const auto frame_timestamp = std::chrono::steady_clock::now();
 
         if (!pull_free_image_cb(img_out)) {
           return platf::capture_e::interrupted;
@@ -666,6 +669,8 @@ namespace platf {
           blend_cursor(shm_xdisplay.get(), *img_out, offset_x, offset_y);
         }
 
+        img_out->capture_duration_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - capture_started_at).count();
         return capture_e::ok;
       }
     }

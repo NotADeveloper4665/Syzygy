@@ -4,8 +4,14 @@
  */
 
 // standard includes
+#include <algorithm>
+#include <atomic>
+#include <cstdint>
+#include <cmath>
+#include <deque>
 #include <fstream>
 #include <future>
+#include <mutex>
 #include <queue>
 
 // lib includes
@@ -30,6 +36,8 @@ extern "C" {
 #include "platform/common.h"
 #include "process.h"
 #include "stream.h"
+#include <src/syzygy/core/client_feedback.h>
+#include <src/syzygy/core/telemetry.h>
 #include "syzygy/wan_pacing.h"
 #include "sync.h"
 #include "system_tray.h"
@@ -348,8 +356,25 @@ namespace stream {
     control_server_t control_server;
   };
 
-  struct session_t {
+  struct session_t : std::enable_shared_from_this<session_t> {
     config_t config;
+
+    std::uint64_t generation {};
+    std::shared_ptr<syzygy::core::session_lifetime> lifetime;
+
+    // Session-scoped telemetry is written by capture/broadcast and control threads.
+    // Keep the snapshot and all feedback freshness timestamps under one lock.
+    std::mutex core_telemetry_mutex;
+    syzygy::core::telemetry_sample core_telemetry;
+    std::chrono::steady_clock::time_point core_last_diagnostic_at {};
+    std::chrono::steady_clock::time_point core_last_enet_ping_at {};
+    // ENet's lastReceiveTime advances when an acknowledged packet updates its
+    // RTT estimator. Polling the same cached RTT must not refresh telemetry.
+    std::uint32_t core_last_enet_rtt_receive_time {};
+    std::uint32_t core_last_started_frame_index {};
+    std::uint32_t core_last_sent_frame_index {};
+    std::uint32_t core_last_client_feedback_frame {};
+    std::deque<std::pair<std::uint32_t, std::uint8_t>> core_fec_report_keys;
 
     safe::mail_t mail;
 
@@ -941,19 +966,116 @@ namespace stream {
     });
 
     server->map(packetTypes[IDX_LOSS_STATS], [&](session_t *session, const std::string_view &payload) {
-      int32_t *stats = (int32_t *) payload.data();
-      auto count = stats[0];
-      std::chrono::milliseconds t {stats[1]};
+      const auto stats = syzygy::core::parse_legacy_loss_stats(payload);
+      if (!stats) {
+        BOOST_LOG(verbose) << "Ignoring malformed legacy loss-stats payload";
+        return;
+      }
 
-      auto lastGoodFrame = stats[3];
+      const auto observed_at = std::chrono::steady_clock::now();
+      {
+        std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
+        // A legacy count/time report has no packet denominator. Clear any
+        // previous FEC rate so this fresh legacy timestamp cannot refresh it.
+        session->core_telemetry.packet_loss_per_mille.reset();
+        session->core_telemetry.packet_loss_count = stats->loss_count;
+        session->core_telemetry.packet_loss_total_data_packets.reset();
+        session->core_telemetry.packet_loss_interval_ms = static_cast<double>(stats->interval_ms);
+        session->core_telemetry.loss_observed_at = observed_at;
+      }
 
       BOOST_LOG(verbose)
-        << "type [IDX_LOSS_STATS]"sv << std::endl
-        << "---begin stats---" << std::endl
-        << "loss count since last report [" << count << ']' << std::endl
-        << "time in milli since last report [" << t.count() << ']' << std::endl
-        << "last good frame [" << lastGoodFrame << ']' << std::endl
-        << "---end stats---";
+        << "type [IDX_LOSS_STATS]"
+        << " loss_count=" << stats->loss_count
+        << " interval_ms=" << stats->interval_ms
+        << " rate=unavailable (no verified packet denominator)";
+    });
+
+    // Moonlight SS_FRAME_FEC_STATUS is client -> host 0x5502. The same
+    // numeric type is used host -> client for RGB LED control; these are
+    // distinct directions and are dispatched by the control server.
+    constexpr std::uint16_t SYZYGY_SS_FRAME_FEC_PTYPE = 0x5502;
+    server->map(SYZYGY_SS_FRAME_FEC_PTYPE, [&](session_t *session, const std::string_view &payload) {
+      const auto report = syzygy::core::parse_fec_frame_status(payload);
+      if (!report) {
+        BOOST_LOG(verbose) << "Ignoring malformed SS_FRAME_FEC_STATUS payload";
+        return;
+      }
+
+      const auto observed_at = std::chrono::steady_clock::now();
+      const auto key = std::make_pair(report->frame_index, report->block_index);
+      {
+        std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
+        if (!syzygy::core::frame_index_is_recent(
+                report->frame_index, session->core_last_started_frame_index) ||
+            std::find(session->core_fec_report_keys.begin(), session->core_fec_report_keys.end(), key) !=
+                session->core_fec_report_keys.end()) {
+          return;
+        }
+        session->core_fec_report_keys.push_back(key);
+        while (session->core_fec_report_keys.size() > 64) {
+          session->core_fec_report_keys.pop_front();
+        }
+
+        session->core_telemetry.packet_loss_count = report->lost_data_packets;
+        session->core_telemetry.packet_loss_total_data_packets = report->total_data_packets;
+        session->core_telemetry.packet_loss_per_mille = report->loss_per_mille;
+        session->core_telemetry.packet_loss_interval_ms.reset();
+        session->core_telemetry.loss_observed_at = observed_at;
+      }
+
+      BOOST_LOG(verbose)
+        << "SS_FRAME_FEC_STATUS frame=" << report->frame_index
+        << " block=" << static_cast<unsigned int>(report->block_index)
+        << '/' << static_cast<unsigned int>(report->block_count)
+        << " lost_data=" << report->lost_data_packets
+        << '/' << report->total_data_packets
+        << " loss_per_mille=" << report->loss_per_mille;
+    });
+
+    // Optional Syzygy client feedback extension. Existing Moonlight clients do
+    // not send this type; strict magic/version/length checks keep it inert
+    // until a client implements the documented v1 or v2 contract.
+    constexpr std::uint16_t SYZYGY_CLIENT_TELEMETRY_PTYPE = 0x5506;
+    server->map(SYZYGY_CLIENT_TELEMETRY_PTYPE, [&](session_t *session, const std::string_view &payload) {
+      const auto feedback = syzygy::core::parse_client_telemetry(payload);
+      if (!feedback) {
+        BOOST_LOG(verbose) << "Ignoring malformed Syzygy client telemetry v1/v2 payload";
+        return;
+      }
+
+      const auto observed_at = std::chrono::steady_clock::now();
+      {
+        std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
+        if (!syzygy::core::frame_index_is_recent(
+                feedback->last_frame_index, session->core_last_sent_frame_index) ||
+            (session->core_last_client_feedback_frame != 0 &&
+             !syzygy::core::frame_index_is_newer(
+                 feedback->last_frame_index, session->core_last_client_feedback_frame))) {
+          return;
+        }
+
+        session->core_last_client_feedback_frame = feedback->last_frame_index;
+        session->core_telemetry.client_decode_ms = feedback->decode_ms;
+        session->core_telemetry.client_presentation_queue_ms = feedback->presentation_queue_ms;
+        session->core_telemetry.client_render_ms = feedback->render_ms;
+        session->core_telemetry.client_presentation_ms = feedback->presentation_ms;
+        session->core_telemetry.client_observed_at = observed_at;
+        if (feedback->media_interarrival_jitter_ms) {
+          session->core_telemetry.client_media_jitter_ms = feedback->media_interarrival_jitter_ms;
+          session->core_telemetry.media_jitter_observed_at = observed_at;
+        }
+      }
+
+      BOOST_LOG(verbose)
+        << "Syzygy client telemetry v" << static_cast<unsigned int>(feedback->version)
+        << " frame=" << feedback->last_frame_index
+        << " samples=" << feedback->sample_count
+        << " window_ms=" << feedback->window_ms
+        << " decode_ms=" << feedback->decode_ms
+        << " presentation_queue_ms=" << feedback->presentation_queue_ms
+        << " render_ms=" << feedback->render_ms
+        << " media_interarrival_jitter_ms=" << (feedback->media_interarrival_jitter_ms ? std::to_string(*feedback->media_interarrival_jitter_ms) : "n/a");
     });
 
     server->map(packetTypes[IDX_REQUEST_IDR_FRAME], [&](session_t *session, const std::string_view &payload) {
@@ -1196,6 +1318,48 @@ namespace stream {
       }
 
       server->iterate(150ms);
+
+      // ENet maintains a smoothed RTT and RTT variance from acknowledged
+      // control-channel traffic. This is a control-path estimate, not
+      // one-way media jitter; keep it session-local and timestamped.
+      {
+        auto lg = server->_sessions.lock();
+        const auto observed_at = std::chrono::steady_clock::now();
+        for (auto session : *server->_sessions) {
+          auto *peer = session->control.peer;
+          if (!peer || peer->state != ENET_PEER_STATE_CONNECTED) {
+            continue;
+          }
+
+          // ENet PING is transport-level and does not add a Moonlight control
+          // message. One probe per second refreshes the host-side RTT estimate.
+          if (session->core_last_enet_ping_at.time_since_epoch().count() == 0 ||
+              observed_at - session->core_last_enet_ping_at >= std::chrono::seconds(1)) {
+            enet_peer_ping(peer);
+            session->core_last_enet_ping_at = observed_at;
+          }
+
+          // ENet initializes roundTripTime to a default estimate. Its
+          // lastReceiveTime advances with an acknowledged packet, alongside
+          // the RTT estimator update. Only a new token is a fresh observation;
+          // otherwise the old cached value would appear fresh on every poll.
+          const auto rtt_sample_time = peer->lastReceiveTime;
+          const auto rtt_ms = peer->roundTripTime;
+          const auto variance_ms = peer->roundTripTimeVariance;
+          if (rtt_ms == 0 || rtt_ms > 5000 || variance_ms > 5000) {
+            continue;
+          }
+
+          std::lock_guard<std::mutex> telemetry_lock {session->core_telemetry_mutex};
+          if (!syzygy::core::accept_enet_rtt_sample_token(
+                  rtt_sample_time, session->core_last_enet_rtt_receive_time)) {
+            continue;
+          }
+          session->core_telemetry.network_rtt_ms = static_cast<double>(rtt_ms);
+          session->core_telemetry.network_rtt_variance_ms = static_cast<double>(variance_ms);
+          session->core_telemetry.network_observed_at = observed_at;
+        }
+      }
     }
 
     // Let all remaining connections know the server is shutting down
@@ -1327,6 +1491,12 @@ namespace stream {
   void videoBroadcastThread(udp::socket &sock) {
     auto shutdown_event = mail::man->event<bool>(mail::broadcast_shutdown);
     auto packets = mail::man->queue<video::packet_t>(mail::video_packets);
+    auto broadcaster_exit_guard = util::fail_guard([&]() {
+      shutdown_event->raise(true);
+      packets->stop();
+      packets->clear();
+    });
+
     auto video_epoch = std::chrono::steady_clock::now();
 
     // Video traffic is sent on this thread
@@ -1355,7 +1525,35 @@ namespace stream {
 
       frame_network_latency_logger.first_point_now();
 
-      auto session = (session_t *) packet->channel_data;
+      auto session = packet->session.owner_as<session_t>();
+      if (!session || !packet->session_lease ||
+          packet->session_lease->generation() != packet->session.generation()) {
+        BOOST_LOG(warning) << "Discarding video packet without a valid session lease";
+        continue;
+      }
+      const auto state = session->state.load(std::memory_order_acquire);
+      if (state == session::state_e::STOPPING || state == session::state_e::STOPPED) {
+        continue;
+      }
+      const auto packet_dequeued_at = std::chrono::steady_clock::now();
+      const auto frame_index = packet->frame_index();
+      {
+        std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
+        if (packet->queued_at.time_since_epoch().count() != 0) {
+          session->core_telemetry.send_queue_ms =
+              std::chrono::duration<double, std::milli>(packet_dequeued_at - packet->queued_at).count();
+        } else {
+          session->core_telemetry.send_queue_ms.reset();
+        }
+        // These values are attached only to the output frame matched by NVENC
+        // frame index or FFmpeg PTS correlation.
+        session->core_telemetry.capture_ms = packet->capture_ms;
+        session->core_telemetry.capture_backend_ms = packet->capture_backend_ms;
+        session->core_telemetry.conversion_ms = packet->conversion_ms;
+        session->core_telemetry.encode_ms = packet->encode_ms;
+
+        session->core_telemetry.observed_at = packet_dequeued_at;
+      }
       auto lowseq = session->video.lowseq;
 
       std::string_view payload {(char *) packet->data(), packet->data_size()};
@@ -1365,10 +1563,10 @@ namespace stream {
       // We need to know the final frame size to calculate the last packet size, and we
       // must avoid matching replacements against the frame header or any other non-video
       // part of the payload.
-      if (packet->is_idr() && packet->replacements) {
-        for (auto &replacement : *packet->replacements) {
-          auto frame_old = replacement.old;
-          auto frame_new = replacement._new;
+      if (packet->is_idr() && !packet->replacements.empty()) {
+        for (auto &replacement : packet->replacements) {
+          auto frame_old = std::string_view {replacement.old};
+          auto frame_new = std::string_view {replacement._new};
 
           payload_with_replacements = replace(payload, frame_old, frame_new);
           payload = {(char *) payload_with_replacements.data(), payload_with_replacements.size()};
@@ -1385,17 +1583,74 @@ namespace stream {
         frame_header.lastPayloadLen = session->config.packetsize - sizeof(NV_VIDEO_PACKET);
       }
 
+      const auto pipeline_observed_at = std::chrono::steady_clock::now();
       if (packet->frame_timestamp) {
         auto duration_to_latency = [](const std::chrono::steady_clock::duration &duration) {
           const auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
           return (uint16_t) std::clamp<decltype(duration_us)>((duration_us + 50) / 100, 0, std::numeric_limits<uint16_t>::max());
         };
 
-        uint16_t latency = duration_to_latency(std::chrono::steady_clock::now() - *packet->frame_timestamp);
+        // Preserve the existing cadence-adjusted timestamp in Moonlight's
+        // frame header. APD uses the separate unadjusted source timestamp.
+        const auto latency = duration_to_latency(pipeline_observed_at - *packet->frame_timestamp);
         frame_header.frame_processing_latency = latency;
         frame_processing_latency_logger.collect_and_log(latency / 10.);
-      } else {
-        frame_header.frame_processing_latency = 0;
+      }
+      {
+        std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
+        session->core_telemetry.observed_at = pipeline_observed_at;
+        if (packet->core_frame_timestamp) {
+          const auto host_pipeline_ms = std::chrono::duration<double, std::milli>(
+              pipeline_observed_at - *packet->core_frame_timestamp).count();
+          if (std::isfinite(host_pipeline_ms) && host_pipeline_ms >= 0.0 && host_pipeline_ms <= 5000.0) {
+            session->core_telemetry.host_pipeline_ms = host_pipeline_ms;
+          } else {
+            session->core_telemetry.host_pipeline_ms.reset();
+          }
+        } else {
+          session->core_telemetry.host_pipeline_ms.reset();
+        }
+      }
+
+      const auto diagnostic_now = std::chrono::steady_clock::now();
+      syzygy::core::telemetry_sample telemetry_snapshot;
+      bool emit_diagnostic = false;
+      {
+        std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
+        if (session->core_last_diagnostic_at.time_since_epoch().count() == 0 ||
+            diagnostic_now - session->core_last_diagnostic_at >= std::chrono::seconds(5)) {
+          telemetry_snapshot = session->core_telemetry;
+          session->core_last_diagnostic_at = diagnostic_now;
+          emit_diagnostic = true;
+        }
+      }
+
+      if (emit_diagnostic) {
+        const auto assessment = syzygy::core::assess_pipeline(
+            telemetry_snapshot, syzygy::core::telemetry_policy {}, diagnostic_now);
+        const auto measurement = [](const std::optional<double>& value) {
+          return value ? std::to_string(*value) : std::string("n/a");
+        };
+        BOOST_LOG(debug) << "Syzygy Core pipeline"
+                         << " classification=" << syzygy::core::to_string(assessment.classification)
+                         << " confidence=" << syzygy::core::to_string(assessment.certainty)
+                         << " capture_to_encoder_ms=" << measurement(telemetry_snapshot.capture_ms)
+                         << " capture_backend_ms=" << measurement(telemetry_snapshot.capture_backend_ms)
+                         << " conversion_ms=" << measurement(telemetry_snapshot.conversion_ms)
+                         << " encoder_submit_to_output_ms=" << measurement(telemetry_snapshot.encode_ms)
+                         << " sender_queue_ms=" << measurement(telemetry_snapshot.send_queue_ms)
+                         << " control_rtt_ms=" << measurement(telemetry_snapshot.network_rtt_ms)
+                         << " control_rtt_variance_ms=" << measurement(telemetry_snapshot.network_rtt_variance_ms)
+                         << " client_media_interarrival_jitter_ms=" << measurement(telemetry_snapshot.client_media_jitter_ms)
+                         << " fec_recovery_block_loss_per_mille=" << measurement(telemetry_snapshot.packet_loss_per_mille)
+                         << " loss_count=" << (telemetry_snapshot.packet_loss_count ? std::to_string(*telemetry_snapshot.packet_loss_count) : "n/a")
+                         << " loss_denominator=" << (telemetry_snapshot.packet_loss_total_data_packets ? std::to_string(*telemetry_snapshot.packet_loss_total_data_packets) : "n/a")
+                         << " loss_interval_ms=" << measurement(telemetry_snapshot.packet_loss_interval_ms)
+                         << " client_decode_ms=" << measurement(telemetry_snapshot.client_decode_ms)
+                         << " client_presentation_queue_ms=" << measurement(telemetry_snapshot.client_presentation_queue_ms)
+                         << " client_render_ms=" << measurement(telemetry_snapshot.client_render_ms)
+                         << " client_presentation_ms=" << measurement(telemetry_snapshot.client_presentation_ms)
+                         << " explanation=\"" << assessment.explanation << "\"";
       }
 
       auto wan = session->config.monitor.wan;
@@ -1477,6 +1732,7 @@ namespace stream {
         }
       }
 
+      bool frame_send_completed = false;
       try {
         const auto wire_packet_bytes = blocksize + (session->video.cipher ? sizeof(video_packet_enc_prefix_t) : 0) +
                                        (session->video.peer.address().is_v6() ? 48 : 28);
@@ -1672,6 +1928,14 @@ namespace stream {
 
           frame_network_latency_logger.second_point_now_and_log();
 
+          // FEC recovery feedback can arrive as soon as this block is received,
+          // before later blocks of the same frame have finished sending.
+          if (blockIndex == 0 && frame_index > 0 &&
+              frame_index <= std::numeric_limits<std::uint32_t>::max()) {
+            std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
+            session->core_last_started_frame_index = static_cast<std::uint32_t>(frame_index);
+          }
+
           BOOST_LOG(verbose) << "Sent Frame seq ["sv << packet->frame_index() << "] pts ["sv << timestamp
                              << "] shards ["sv << shards.size() << "/"sv << shards.percentage << "%]"sv
                              << (frame_is_dupe ? " Dupe" : "")
@@ -1683,13 +1947,23 @@ namespace stream {
         });
 
         session->video.lowseq = lowseq;
+        frame_send_completed = true;
       } catch (const std::exception &e) {
         BOOST_LOG(error) << "Broadcast video failed "sv << e.what();
         std::this_thread::sleep_for(100ms);
       }
+
+      // Client feedback is bounded by the newest frame whose complete send
+      // path finished, not merely the packet that was dequeued for processing.
+      if (frame_send_completed && frame_index > 0 &&
+          frame_index <= std::numeric_limits<std::uint32_t>::max()) {
+        std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
+        session->core_last_sent_frame_index = static_cast<std::uint32_t>(frame_index);
+      }
     }
 
     shutdown_event->raise(true);
+    broadcaster_exit_guard.disable();
   }
 
   void audioBroadcastThread(udp::socket &sock) {
@@ -1720,8 +1994,22 @@ namespace stream {
         break;
       }
 
-      TUPLE_2D_REF(channel_data, packet_data, *packet);
-      auto session = (session_t *) channel_data;
+      if (!packet->session || !packet->session_lease ||
+          packet->session_lease.generation() != packet->session.generation()) {
+        BOOST_LOG(warning) << "Discarding audio packet without a valid session lease";
+        continue;
+      }
+
+      auto session = packet->session.owner_as<session_t>();
+      if (!session) {
+        BOOST_LOG(warning) << "Discarding audio packet without a live session owner";
+        continue;
+      }
+      const auto state = session->state.load(std::memory_order_acquire);
+      if (state == session::state_e::STOPPING || state == session::state_e::STOPPED) {
+        continue;
+      }
+      auto &packet_data = packet->payload;
 
       auto sequenceNumber = session->audio.sequenceNumber;
       auto timestamp = session->audio.timestamp;
@@ -1866,6 +2154,7 @@ namespace stream {
 
     // Minimize delay stopping video/audio threads
     video_packets->stop();
+    video_packets->clear();
     audio_packets->stop();
 
     ctx.message_queue_queue->stop();
@@ -1943,7 +2232,7 @@ namespace stream {
     return -1;
   }
 
-  void videoThread(session_t *session) {
+  void videoThread(std::shared_ptr<session_t> session) {
     auto fg = util::fail_guard([&]() {
       session::stop(*session);
     });
@@ -1951,7 +2240,7 @@ namespace stream {
     while_starting_do_nothing(session->state);
 
     auto ref = broadcast.ref();
-    auto error = recv_ping(session, ref, socket_e::video, session->video.ping_payload, session->video.peer, config::stream.ping_timeout);
+    auto error = recv_ping(session.get(), ref, socket_e::video, session->video.ping_payload, session->video.peer, config::stream.ping_timeout);
     if (error < 0) {
       return;
     }
@@ -1961,10 +2250,11 @@ namespace stream {
     session->video.qos = platf::enable_socket_qos(ref->video_sock.native_handle(), address, session->video.peer.port(), platf::qos_data_type_e::video, session->config.videoQosType != 0);
 
     BOOST_LOG(debug) << "Start capturing Video"sv;
-    video::capture(session->mail, session->config.monitor, session);
+    video::capture(session->mail, session->config.monitor,
+                   syzygy::core::session_handle {session, session->lifetime, session->generation});
   }
 
-  void audioThread(session_t *session) {
+  void audioThread(std::shared_ptr<session_t> session) {
     auto fg = util::fail_guard([&]() {
       session::stop(*session);
     });
@@ -1972,7 +2262,7 @@ namespace stream {
     while_starting_do_nothing(session->state);
 
     auto ref = broadcast.ref();
-    auto error = recv_ping(session, ref, socket_e::audio, session->audio.ping_payload, session->audio.peer, config::stream.ping_timeout);
+    auto error = recv_ping(session.get(), ref, socket_e::audio, session->audio.ping_payload, session->audio.peer, config::stream.ping_timeout);
     if (error < 0) {
       return;
     }
@@ -1982,11 +2272,13 @@ namespace stream {
     session->audio.qos = platf::enable_socket_qos(ref->audio_sock.native_handle(), address, session->audio.peer.port(), platf::qos_data_type_e::audio, session->config.audioQosType != 0);
 
     BOOST_LOG(debug) << "Start capturing Audio"sv;
-    audio::capture(session->mail, session->config.audio, session);
+    audio::capture(session->mail, session->config.audio,
+                   syzygy::core::session_handle {session, session->lifetime, session->generation});
   }
 
   namespace session {
     std::atomic_uint running_sessions;
+    std::atomic_uint64_t next_session_generation {1};
     unsigned int active_count() { return running_sessions.load(std::memory_order_relaxed); }
 
     state_e state(session_t &session) {
@@ -2027,6 +2319,7 @@ namespace stream {
 
     void stop(session_t &session) {
       while_starting_do_nothing(session.state);
+      if (session.lifetime) session.lifetime->close();
       auto expected = state_e::RUNNING;
       auto already_stopping = !session.state.compare_exchange_strong(expected, state_e::STOPPING);
       if (already_stopping) {
@@ -2039,6 +2332,7 @@ namespace stream {
 
     void graceful_stop(session_t& session) {
       while_starting_do_nothing(session.state);
+      if (session.lifetime) session.lifetime->close();
       auto expected = state_e::RUNNING;
       auto already_stopping = !session.state.compare_exchange_strong(expected, state_e::STOPPING);
       if (already_stopping) {
@@ -2091,6 +2385,10 @@ namespace stream {
       session.videoThread.join();
       BOOST_LOG(debug) << "Waiting for audio to end..."sv;
       session.audioThread.join();
+      if (session.lifetime) {
+        BOOST_LOG(debug) << "Waiting for queued/in-flight video and audio packets to release session leases..."sv;
+        session.lifetime->close_and_wait();
+      }
       BOOST_LOG(debug) << "Waiting for control to end..."sv;
       session.controlEnd.view();
       // Reset input on session stop to avoid stuck repeated keys
@@ -2162,8 +2460,8 @@ namespace stream {
 
       session.pingTimeout = std::chrono::steady_clock::now() + config::stream.ping_timeout;
 
-      session.audioThread = std::thread {audioThread, &session};
-      session.videoThread = std::thread {videoThread, &session};
+      session.audioThread = std::thread {audioThread, session.shared_from_this()};
+      session.videoThread = std::thread {videoThread, session.shared_from_this()};
 
       BOOST_LOG(info) << "SYZYGY_SESSION_START " << reinterpret_cast<std::uintptr_t>(&session)
                       << " " << (session.config.monitor.videoFormat == 0 ? "H.264" : session.config.monitor.videoFormat == 1 ? "HEVC" : "AV1");
@@ -2199,6 +2497,8 @@ namespace stream {
 
     std::shared_ptr<session_t> alloc(config_t &config, rtsp_stream::launch_session_t &launch_session) {
       auto session = std::make_shared<session_t>();
+      session->generation = next_session_generation.fetch_add(1, std::memory_order_relaxed);
+      session->lifetime = std::make_shared<syzygy::core::session_lifetime>(session->generation);
 
       auto mail = std::make_shared<safe::mail_raw_t>();
 

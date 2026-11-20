@@ -4,6 +4,8 @@
  */
 #pragma once
 
+#include "syzygy/core/pipeline_primitives.h"
+
 // local includes
 #include "platform/common.h"
 #include "thread_safe.h"
@@ -74,10 +76,19 @@ namespace audio {
   };
 
   using buffer_t = util::buffer_t<std::uint8_t>;
-  using packet_t = std::pair<void *, buffer_t>;
+
+  // Audio packets cross from the encoder worker to the shared broadcaster.
+  // Keep both the session object and its generation lease alive for the whole
+  // queued/in-flight send; never carry a raw session pointer through the queue.
+  struct packet_t {
+    syzygy::core::session_handle session;
+    syzygy::core::session_lifetime::lease session_lease;
+    buffer_t payload;
+  };
+
   using audio_ctx_ref_t = safe::shared_t<audio_ctx_t>::ptr_t;
 
-  void capture(safe::mail_t mail, config_t config, void *channel_data);
+  void capture(safe::mail_t mail, config_t config, syzygy::core::session_handle session_owner);
 
   /**
    * @brief Get the reference to the audio context.
