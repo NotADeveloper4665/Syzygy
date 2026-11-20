@@ -1,5 +1,6 @@
 #include "../tests_common.h"
 
+#include <algorithm>
 #include <limits>
 
 #include <src/syzygy/core/telemetry.h>
@@ -96,7 +97,9 @@ TEST(CoreTelemetry, RecoveryTriggeredFecBlockLossIsDiagnosticNotNetworkRate) {
 
   auto result = syzygy::core::assess_pipeline(sample, telemetry_policy {}, now);
   EXPECT_EQ(result.classification, bottleneck::healthy);
-  EXPECT_FALSE(result.evidence.empty());
+  EXPECT_TRUE(std::any_of(result.evidence.begin(), result.evidence.end(), [](const auto& item) {
+    return item.find("FEC report") != std::string::npos;
+  }));
 
   // Without a fresh RTT or client media-jitter sample, FEC recovery reports
   // alone cannot satisfy the network-stage evidence gate.
