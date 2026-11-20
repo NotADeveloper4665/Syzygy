@@ -49,10 +49,10 @@ Measurements are optional and use explicit units. Host, control-network, media-j
 | Encode latency | milliseconds | 0–5000 | NVENC API-to-matching-output and FFmpeg PTS-correlated submission-to-output wired |
 | Send queue latency | milliseconds | 0–5000 | Internal packet queue wait from publication to broadcaster dequeue; excludes network send |
 | Combined host pipeline latency | milliseconds | 0–5000 | Captured-frame timestamp to broadcaster observation; aggregate only |
-| Control-channel RTT | milliseconds | 0–5000 | ENet peer smoothed RTT sampled with a low-rate transport ping |
-| Control-channel RTT variance | milliseconds | 0–5000 | ENet RTT-variance estimator; path-variation proxy, not media packet jitter |
+| Control-channel RTT | milliseconds | 0–5000 | ENet peer smoothed RTT sampled from a new acknowledged-packet update; unchanged cached values do not refresh freshness |
+| Control-channel RTT variance | milliseconds | 0–5000 | ENet RTT-variance estimator sampled with RTT; path-variation proxy, not media packet jitter |
 | Client media inter-arrival jitter | milliseconds | 0–5000 | Optional Syzygy `0x5506` v2; RFC 3550 RTP inter-arrival jitter converted using the negotiated RTP clock rate; no sender in this repository |
-| FEC-reported data loss | per mille | 0–1000 | Per-block denominator from Moonlight `SS_FRAME_FEC_STATUS`; reports only when a block required recovery |
+| FEC-reported data loss | per mille | 0–1000 | Per-block denominator from Moonlight `SS_FRAME_FEC_STATUS`; reports only when a block required recovery; conditional diagnostic evidence, not a stream-wide rate or independent network-stage trigger |
 | Legacy loss count / interval | count / milliseconds | count >= 0; interval 1–60000 | Raw legacy feedback retained; no rate inferred |
 | Client decode latency | milliseconds | 0–5000 | Optional Syzygy `0x5506` v1/v2 receiver; no client sender in this repository |
 | Client presentation queue / render / total | milliseconds | 0–5000 | Optional Syzygy `0x5506` v1/v2 receiver; not physical display latency |
