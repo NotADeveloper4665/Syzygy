@@ -11,6 +11,7 @@ Use fresh, per-session evidence to recommend reversible streaming adjustments wi
 The current implementation may:
 - collect verified per-session host timing measurements;
 - collect ENet control-channel RTT and RTT-variance telemetry;
+- receive optional client-reported RFC 3550 media inter-arrival jitter from Syzygy client telemetry v2;
 - collect Moonlight FEC-reported per-block data loss and legacy raw loss count/interval;
 - validate and receive the optional Syzygy client decode/presentation extension;
 - classify pipeline pressure;
@@ -21,6 +22,7 @@ The current implementation must not:
 - restart or recover a stream automatically;
 - use telemetry from one session to affect another session;
 - label ENet RTT variance as one-way or media-packet jitter;
+- claim media-jitter coverage when a client does not send the optional v2 extension;
 - infer a stream-wide loss rate from a recovery-triggered FEC block report;
 - infer a packet-loss percentage from legacy count/time without a denominator;
 - claim client decode/presentation coverage when a client does not send the optional Syzygy extension.
