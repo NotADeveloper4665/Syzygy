@@ -32,6 +32,7 @@
 - [x] Add strict host receiver/parser for optional Syzygy client telemetry v1/v2; v2 carries client-reported RFC 3550 media inter-arrival jitter, while a client sender remains outside this repository.
 - [x] Document source, units, timing boundary, freshness, and limitations for each wired adapter.
 - [x] Add PTS-correlation and feedback-parser smoke tests; session-isolation stress and full hardware validation remain pending.
+- [x] Validate recent FEC and client-feedback frame indices with wrap-safe 32-bit serial arithmetic.
 - [x] Prevent aggregate host-pipeline timing from being counted as a second independent bottleneck alongside detailed stage metrics.
 
 ## Milestone 2: observe-only diagnostics
