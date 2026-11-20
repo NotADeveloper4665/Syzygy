@@ -7,24 +7,28 @@ The Core model must be testable without a running streaming host.
 Required cases:
 - A measured zero differs from an unavailable measurement.
 - Negative, out-of-range, NaN, and infinite values are rejected.
-- Freshness boundary is deterministic using an injected monotonic timestamp.
-- Stale and future-dated samples do not classify as healthy.
-- Each supported host/network stage can be classified from sufficient evidence.
+- Freshness boundaries are deterministic using injected monotonic timestamps.
+- Stale host, network, loss, and client groups do not become fresh because another group updated.
+- Each supported host/network/client stage can be classified from sufficient evidence.
 - Two elevated stages classify as mixed.
 - Client-bound is never inferred from server-side timing.
+- Aggregate host timing is not counted as a second independent stage.
 - Assessments are deterministic and do not mutate samples or stream configuration.
 
-## Automated smoke test
+## Adapter and parser tests
 
-The Linux workflow compiles and runs `tests/core_telemetry_smoke.cpp` directly with the Core implementation. It verifies combined host-pipeline classification, low confidence, observe-only behavior, invalid measurement rejection, incomplete-data handling, and a complete non-elevated sample.
+- `core_frame_correlation_smoke.cpp`: delayed/reordered PTS output, missing PTS, duplicate PTS, bounded pending records, and eviction.
+- `core_client_feedback_smoke.cpp`: exact FEC payload size/endian/count validation, legacy count/time parsing without a rate, and strict Syzygy client telemetry v1 validation.
+- `core_telemetry_smoke.cpp`: independent source freshness, capture/conversion/encode/sender/network/client classification, mixed stages, and observe-only behavior.
 
-The full GoogleTest target remains a separate validation item; the RPM packaging job currently configures `BUILD_TESTS=OFF`.
+The Linux workflow compiles and runs all three smoke tests with `-Wall -Wextra -Werror`. The full GoogleTest target remains a separate validation item; the RPM packaging job currently configures `BUILD_TESTS=OFF`.
 
 ## Runtime diagnostics
 
 - Structured debug output is emitted per session no more often than every five seconds.
-- Output includes classification, confidence, aggregate host timing, NVENC API-to-output timing, queue wait, and explanation.
+- Output includes classification, confidence, capture-to-encoder age, capture callback duration, conversion, encoder submission-to-output, sender queue wait, control RTT/variance, FEC loss when reported, and client decode/presentation when supplied.
 - Missing values are rendered as unavailable; diagnostics never include pairing secrets or client identifiers.
+- Control RTT/variance, loss feedback, and client feedback are timestamped independently from host frame measurements.
 
 ## Build validation
 
@@ -32,12 +36,17 @@ The full GoogleTest target remains a separate validation item; the RPM packaging
 - Run focused Core unit tests.
 - Run the complete CTest suite.
 - Build the Linux server and RPM package in CI.
+- Verify that AVCodec output timing is attached only by matching PTS and never by the most recently submitted frame.
 
 ## Hardware acceptance
 
-On the Fedora 44 T1600 / GTX 1060 host:
-- Capture/encode/send timings must be compared with independent profiling.
+On the physical Fedora 44 T1600 / GTX 1060 host:
+- Compare capture, conversion, encode, and queue timings with independent profiling.
+- Verify the selected capture backend before interpreting capture callback duration.
+- Verify NVENC and FFmpeg paths separately where supported.
+- Record control-channel RTT/variance separately from media-path jitter.
+- Confirm FEC loss reports only appear for blocks requiring recovery; absence is unknown.
+- Validate client decode/presentation only when a compatible client sender is present.
 - Repeat tests at 1080p60 and at least one lower/higher load.
-- Record encoder, codec, GPU load, CPU load, capture backend, and network conditions.
 - Confirm stale or missing telemetry never triggers a change.
 - No automatic tuning is permitted in this milestone.
