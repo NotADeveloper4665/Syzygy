@@ -17,6 +17,7 @@ struct telemetry_sample {
   // timestamps so a fresh frame cannot make stale feedback look current.
   monotonic_clock::time_point observed_at {};
   monotonic_clock::time_point network_observed_at {};
+  monotonic_clock::time_point media_jitter_observed_at {};
   monotonic_clock::time_point loss_observed_at {};
   monotonic_clock::time_point client_observed_at {};
 
@@ -37,6 +38,8 @@ struct telemetry_sample {
   // not one-way media-packet jitter.
   std::optional<double> network_rtt_ms;
   std::optional<double> network_rtt_variance_ms;
+  // Client-reported RTP inter-arrival jitter (RFC 3550), not ENet RTT variance.
+  std::optional<double> client_media_jitter_ms;
 
   // Per-mille data-shard loss from a client FEC recovery report. Reports are
   // emitted only for blocks requiring recovery; absence is unknown, not zero.
@@ -63,6 +66,7 @@ struct telemetry_policy {
   double host_pipeline_threshold_ms {20.0};
   double network_rtt_threshold_ms {80.0};
   double network_rtt_variance_threshold_ms {15.0};
+  double media_jitter_threshold_ms {5.0};
   double packet_loss_threshold_per_mille {20.0};
   double client_decode_threshold_ms {8.0};
   double client_presentation_threshold_ms {8.0};
