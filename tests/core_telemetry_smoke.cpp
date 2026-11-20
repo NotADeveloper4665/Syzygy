@@ -100,6 +100,8 @@ int main() {
   assert(stale_host.classification == bottleneck::insufficient_data);
 
   sample.observed_at = now;
+  sample.client_media_jitter_ms.reset();
+  sample.media_jitter_observed_at = {};
   sample.network_rtt_ms = 10.0;
   sample.network_observed_at = now - 4s;
   auto stale_network = syzygy::core::assess_pipeline(sample, policy, now);
