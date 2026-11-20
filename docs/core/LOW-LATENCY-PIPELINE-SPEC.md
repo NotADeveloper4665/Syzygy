@@ -247,9 +247,8 @@ Current encoders still publish through `mail::video_packets`, and the
 single `videoBroadcastThread` still owns packetization, FEC, encryption,
 pacing and socket submission. The following are still required:
 
-- Replace the raw `session_t*` packet channel reference with a lifetime-safe
-  session handle/generation that keeps the required immutable session state
-  alive across worker handoff.
+- Replace the shared global media queues with the per-session scheduler while
+  preserving the generation-bound packet owners and serialized sender state.
 - Wire the aggregate reservation into encoder admission before conversion or
   encode work is committed, not only after an encoded packet exists.
 - Move encoded output into the per-session DRR scheduler.
@@ -277,28 +276,40 @@ FEC-block and sender jobs must actually carry leases for the fence to protect
 the runtime.
 
 
-## 12. First runtime ownership integration (2026-11-20)
+## 12. Media packet ownership integration (2026-11-20)
 
-The encoder-to-broadcaster packet path now uses a generation-bound
-`syzygy::core::session_handle` instead of `void *channel_data`:
+The encoded-video and encoded-audio packet paths now carry a generation-bound
+`syzygy::core::session_handle` plus a move-only
+`session_lifetime::lease`. No raw `session_t*` or `void *channel_data`
+is carried through either media packet queue.
 
-- Each live stream session receives a unique video generation and a shared
+- Each live stream session receives a unique session generation and a shared
   lifetime fence.
 - The video capture thread passes a strong session owner and generation into
-  the encoder path.
-- Every encoded packet acquires a move-only lease before it is published.
-  The packet retains both the strong session owner and lease until broadcaster
-  processing completes or the packet is discarded.
-- The broadcaster validates the owner and generation before accessing session
-  state, and discards packets after the session enters STOPPING/STOPPED.
+  the encoder path. Every encoded video packet acquires a lease before publish.
+- Audio capture passes the same strong owner/generation to its encoder worker.
+  The audio worker acquires a lease before encoding each packet and publishes
+  the handle, lease, and payload together.
+- Video and audio broadcasters validate the handle/lease generation before
+  accessing session-owned cipher, sequence, FEC, peer, and buffer state.
+  The packet keeps its lease through encryption, FEC, socket submission, or
+  discard. Packets observed after STOPPING/STOPPED are discarded.
+- Audio's worker thread now receives a shared session owner rather than a raw
+  session pointer.
 - AVCodec SPS/VPS replacement data is copied into each IDR packet, removing
   another pointer from the packet to encoder-session-owned memory.
-- Session shutdown closes lease admission and waits for all packet leases to
-  drain after the video thread exits.
-- Broadcast shutdown stops and clears the shared video queue, releasing any
-  queued packet leases whose consumer will no longer run.
+- Stop closes lease admission. Teardown joins both media producer threads,
+  then waits for all queued/in-flight video and audio packet leases to drain.
+- Broadcast shutdown stops and clears the shared media queues, releasing any
+  queued packet leases whose consumers will no longer run.
 
-This is a first ownership-safety slice, not yet the per-session scheduler
-integration. The legacy shared queue and single serialized broadcaster remain.
-The queue's existing overflow behavior still clears queued frames; that policy
-must be replaced separately with protocol-safe admission.
+Focused unit tests cover audio packet owner retention after dequeue and lease
+release when the stopped queue is cleared. The complete Linux package build
+must still validate the changed media source files.
+
+This is an ownership-safety slice, not yet the per-session scheduler
+integration. The legacy shared queues and single serialized video/audio
+broadcasters remain. The generic video queue's overflow behavior still needs
+a protocol-safe admission policy. Raw session pointers remain in control-server
+lookup/callback plumbing; those are not media packet payload ownership and
+need a separate control-lifecycle audit.
