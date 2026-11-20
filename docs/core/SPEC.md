@@ -43,7 +43,7 @@ A sample belongs to exactly one session and one monotonic observation time. Meas
 
 | Field | Unit | Valid range | Source status |
 | --- | --- | --- | --- |
-| Capture latency | milliseconds | 0–5000 | Adapter not yet wired |
+| Capture-to-encoder age | milliseconds | 0–5000 | Wired from the captured image's monotonic frame timestamp to encoder consumption; includes latest-slot/mailbox wait and is not pure capture-backend execution time |
 | Encode latency | milliseconds | 0–5000 | NVENC API submission-to-matching-output latency wired; AVCodec/FFmpeg unavailable pending frame correlation |
 | Send queue latency | milliseconds | 0–5000 | Internal packet queue wait from publication to broadcaster dequeue; excludes network send |
 | Combined host pipeline latency | milliseconds | 0–5000 | Wired from captured-frame timestamp to broadcaster processing point; aggregate only, not stage-isolated |
@@ -57,7 +57,7 @@ A missing measurement means unavailable, not zero. All time values use steady_cl
 
 ## 6. Classification requirements
 
-- capture_bound: capture latency is elevated while encode and send queue are not elevated.
+- capture_bound: capture-to-encoder age is elevated while encode and send queue are not elevated.
 - encode_bound: encode latency is elevated relative to its configured threshold.
 - network_bound: send queue latency is elevated, or complete network measurements show congestion.
 - client_bound: reserved for future client-side decode/presentation telemetry; must not be emitted until such telemetry is supplied and validated.
@@ -95,6 +95,7 @@ A classification must include the measurements that triggered it, an explanation
 | CORE-AC-12 | Target T1600 telemetry matches independent measurement | Hardware acceptance |
 | CORE-AC-13 | Combined host-pipeline timing is recorded per session without claiming a specific substage | Adapter review and smoke test |
 | CORE-AC-14 | NVENC API-to-output timing is recorded only for a matching frame index and is not described as pure GPU execution time | Packet adapter review and tests |
+| CORE-AC-15 | Capture-to-encoder age is attached only to a frame-matched encoded output and remains unavailable without a valid source timestamp | Packet adapter review and tests |
 | CORE-AC-15 | Internal packet queue wait is recorded from queue publication to broadcaster dequeue, separately from network transit | Packet adapter review and tests |
 | CORE-AC-16 | Aggregate host timing does not count as an independent stage when detailed stage telemetry is present | Classifier regression tests |
 
