@@ -1413,7 +1413,7 @@ namespace video {
     }
   }
 
-  int encode_avcodec(int64_t frame_nr, avcodec_encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, void *channel_data, std::optional<std::chrono::steady_clock::time_point> frame_timestamp) {
+  int encode_avcodec(int64_t frame_nr, avcodec_encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, void *channel_data, std::optional<std::chrono::steady_clock::time_point> frame_timestamp, std::optional<double> capture_ms) {
     auto &frame = session.device->frame;
     frame->pts = frame_nr;
 
@@ -1501,6 +1501,7 @@ namespace video {
 
       if (av_packet && av_packet->pts == frame_nr) {
         packet->frame_timestamp = frame_timestamp;
+        packet->capture_ms = capture_ms;
       }
 
       packet->replacements = &session.replacements;
@@ -1512,7 +1513,7 @@ namespace video {
     return 0;
   }
 
-  int encode_nvenc(int64_t frame_nr, nvenc_encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, void *channel_data, std::optional<std::chrono::steady_clock::time_point> frame_timestamp) {
+  int encode_nvenc(int64_t frame_nr, nvenc_encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, void *channel_data, std::optional<std::chrono::steady_clock::time_point> frame_timestamp, std::optional<double> capture_ms) {
     const auto encode_started_at = std::chrono::steady_clock::now();
     auto encoded_frame = session.encode_frame(frame_nr);
     const auto encode_completed_at = std::chrono::steady_clock::now();
@@ -1530,6 +1531,7 @@ namespace video {
     packet->after_ref_frame_invalidation = encoded_frame.after_ref_frame_invalidation;
     packet->frame_timestamp = frame_timestamp;
     if (frame_nr == encoded_frame.frame_index) {
+      packet->capture_ms = capture_ms;
       packet->encode_ms = std::chrono::duration<double, std::milli>(encode_completed_at - encode_started_at).count();
     }
     packet->queued_at = std::chrono::steady_clock::now();
@@ -1538,11 +1540,11 @@ namespace video {
     return 0;
   }
 
-  int encode(int64_t frame_nr, encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, void *channel_data, std::optional<std::chrono::steady_clock::time_point> frame_timestamp) {
+  int encode(int64_t frame_nr, encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, void *channel_data, std::optional<std::chrono::steady_clock::time_point> frame_timestamp, std::optional<double> capture_ms = std::nullopt) {
     if (auto avcodec_session = dynamic_cast<avcodec_encode_session_t *>(&session)) {
-      return encode_avcodec(frame_nr, *avcodec_session, packets, channel_data, frame_timestamp);
+      return encode_avcodec(frame_nr, *avcodec_session, packets, channel_data, frame_timestamp, capture_ms);
     } else if (auto nvenc_session = dynamic_cast<nvenc_encode_session_t *>(&session)) {
-      return encode_nvenc(frame_nr, *nvenc_session, packets, channel_data, frame_timestamp);
+      return encode_nvenc(frame_nr, *nvenc_session, packets, channel_data, frame_timestamp, capture_ms);
     }
 
     return -1;
@@ -2072,11 +2074,17 @@ namespace video {
       }
 
       std::optional<std::chrono::steady_clock::time_point> frame_timestamp;
+      std::optional<double> capture_ms;
 
       // Encode at a minimum FPS to avoid image quality issues with static content
       if (!requested_idr_frame || images->peek()) {
         if (auto img = images->pop(max_frametime)) {
           frame_timestamp = img->frame_timestamp;
+          if (frame_timestamp) {
+            // This is capture timestamp to encoder consumption age, including mailbox wait;
+            // it is not a measurement of the capture backend's own execution time.
+            capture_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - *frame_timestamp).count();
+          }
           if (!frame_timestamp) {
             if (!missing_frame_timestamp_warning_logged) {
               BOOST_LOG(warning) << "Encoder received image without frame timestamp; substituting steady_clock::now()"sv;
@@ -2110,7 +2118,7 @@ namespace video {
         }
       }
 
-      if (encode(frame_nr++, *session, packets, channel_data, frame_timestamp)) {
+      if (encode(frame_nr++, *session, packets, channel_data, frame_timestamp, capture_ms)) {
         BOOST_LOG(error) << "Could not encode video packet"sv;
         break;
       }
