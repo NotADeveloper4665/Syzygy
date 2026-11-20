@@ -40,11 +40,15 @@ public:
     }
 
     const auto pts = record.pts;
-    const bool inserted = pending_.emplace(pts, std::move(record)).second;
-    if (!inserted) {
+    if (pending_.find(pts) != pending_.end()) {
+      // A reused PTS makes the association ambiguous. Remove the old record
+      // rather than risk attaching stale metadata to a later output packet.
+      pending_.erase(pts);
+      const auto old_order = std::find(insertion_order_.begin(), insertion_order_.end(), pts);
+      if (old_order != insertion_order_.end()) insertion_order_.erase(old_order);
       return false;
     }
-
+    pending_.emplace(pts, std::move(record));
     insertion_order_.push_back(pts);
     while (pending_.size() > max_pending_) {
       const auto oldest = insertion_order_.front();
