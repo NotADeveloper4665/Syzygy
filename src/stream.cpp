@@ -1645,8 +1645,13 @@ namespace stream {
                          << " sender_queue_ms=" << measurement(telemetry_snapshot.send_queue_ms)
                          << " control_rtt_ms=" << measurement(telemetry_snapshot.network_rtt_ms)
                          << " control_rtt_variance_ms=" << measurement(telemetry_snapshot.network_rtt_variance_ms)
-                         << " fec_loss_per_mille=" << measurement(telemetry_snapshot.packet_loss_per_mille)
+                         << " client_media_interarrival_jitter_ms=" << measurement(telemetry_snapshot.client_media_jitter_ms)
+                         << " fec_recovery_block_loss_per_mille=" << measurement(telemetry_snapshot.packet_loss_per_mille)
+                         << " loss_count=" << (telemetry_snapshot.packet_loss_count ? std::to_string(*telemetry_snapshot.packet_loss_count) : "n/a")
+                         << " loss_interval_ms=" << measurement(telemetry_snapshot.packet_loss_interval_ms)
                          << " client_decode_ms=" << measurement(telemetry_snapshot.client_decode_ms)
+                         << " client_presentation_queue_ms=" << measurement(telemetry_snapshot.client_presentation_queue_ms)
+                         << " client_render_ms=" << measurement(telemetry_snapshot.client_render_ms)
                          << " client_presentation_ms=" << measurement(telemetry_snapshot.client_presentation_ms)
                          << " explanation=\"" << assessment.explanation << "\"";
       }
