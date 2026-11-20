@@ -80,7 +80,8 @@ Specification: [LOW-LATENCY-PIPELINE-SPEC.md](LOW-LATENCY-PIPELINE-SPEC.md)
 - [ ] Preserve frame/block order, FEC indices, packet sequence and encryption IV counters.
 - [ ] Add fair scheduling across sessions.
 - [ ] Define recovery for partially delivered frames.
-- [ ] Replace raw session pointer packet channel data with a lifetime-safe session handle/generation and drain in-flight owners on teardown.
+- [x] Add a generation-bound session lifetime lease/drain primitive and test teardown waiting for in-flight owners.
+- [ ] Replace raw session pointer packet channel data with the lifetime-safe handle and carry leases through encoder/FEC/sender jobs.
 
 ### Phase D — early slice/block delivery
 - [ ] Verify Linux NVENC and FFmpeg slice-output support and buffer lifetimes.
