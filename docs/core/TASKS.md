@@ -61,7 +61,8 @@ Specification: [LOW-LATENCY-PIPELINE-SPEC.md](LOW-LATENCY-PIPELINE-SPEC.md)
 - [ ] Add deterministic tests for session isolation and monotonic frame/packet numbers.
 
 ### Phase B — explicit bounded frame admission
-- [ ] Replace implicit global queue-overflow clearing with explicit admission outcomes.
+- [x] Implement a standalone bounded per-session DRR scheduler primitive with byte/frame limits, queue-age accounting, recovery reserves, FIFO preservation and generation-safe teardown; unit tests added.
+- [ ] Wire the scheduler into the encoder publication path and replace the shared overflow-clearing video queue.
 - [ ] Track encoder, packetizer and sender occupancy per session.
 - [ ] Establish a small bounded picture budget based on measured backend depth.
 - [ ] Apply freshness dropping only before encode or after protocol-safe reference invalidation.
