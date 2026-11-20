@@ -45,8 +45,9 @@ int main() {
 
   // Duplicate PTS must never overwrite the first submitted record.
   assert(!correlator.remember(third));
-  auto remaining = correlator.take(102);
-  assert(remaining && remaining->capture_ms && *remaining->capture_ms == 5.0);
+  // A duplicate PTS invalidates the association instead of returning stale metadata.
+  assert(!correlator.take(102));
+  assert(correlator.size() == 0);
 
   pts_timing_correlator bounded(2);
   assert(bounded.remember(first));
