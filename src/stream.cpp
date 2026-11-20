@@ -354,8 +354,8 @@ namespace stream {
   struct session_t : std::enable_shared_from_this<session_t> {
     config_t config;
 
-    std::uint64_t video_generation {};
-    std::shared_ptr<syzygy::core::session_lifetime> video_lifetime;
+    std::uint64_t generation {};
+    std::shared_ptr<syzygy::core::session_lifetime> lifetime;
 
     // Owned by this session; populated by the shared video broadcaster for
     // diagnostics. No control action consumes it in observe-only milestone 1.
@@ -1784,8 +1784,22 @@ namespace stream {
         break;
       }
 
-      TUPLE_2D_REF(channel_data, packet_data, *packet);
-      auto session = (session_t *) channel_data;
+      if (!packet->session || !packet->session_lease ||
+          packet->session_lease.generation() != packet->session.generation()) {
+        BOOST_LOG(warning) << "Discarding audio packet without a valid session lease";
+        continue;
+      }
+
+      auto session = packet->session.owner_as<session_t>();
+      if (!session) {
+        BOOST_LOG(warning) << "Discarding audio packet without a live session owner";
+        continue;
+      }
+      const auto state = session->state.load(std::memory_order_acquire);
+      if (state == session::state_e::STOPPING || state == session::state_e::STOPPED) {
+        continue;
+      }
+      auto &packet_data = packet->payload;
 
       auto sequenceNumber = session->audio.sequenceNumber;
       auto timestamp = session->audio.timestamp;
@@ -2027,10 +2041,10 @@ namespace stream {
 
     BOOST_LOG(debug) << "Start capturing Video"sv;
     video::capture(session->mail, session->config.monitor,
-                   syzygy::core::session_handle {session, session->video_lifetime, session->video_generation});
+                   syzygy::core::session_handle {session, session->lifetime, session->generation});
   }
 
-  void audioThread(session_t *session) {
+  void audioThread(std::shared_ptr<session_t> session) {
     auto fg = util::fail_guard([&]() {
       session::stop(*session);
     });
@@ -2038,7 +2052,7 @@ namespace stream {
     while_starting_do_nothing(session->state);
 
     auto ref = broadcast.ref();
-    auto error = recv_ping(session, ref, socket_e::audio, session->audio.ping_payload, session->audio.peer, config::stream.ping_timeout);
+    auto error = recv_ping(session.get(), ref, socket_e::audio, session->audio.ping_payload, session->audio.peer, config::stream.ping_timeout);
     if (error < 0) {
       return;
     }
@@ -2048,12 +2062,13 @@ namespace stream {
     session->audio.qos = platf::enable_socket_qos(ref->audio_sock.native_handle(), address, session->audio.peer.port(), platf::qos_data_type_e::audio, session->config.audioQosType != 0);
 
     BOOST_LOG(debug) << "Start capturing Audio"sv;
-    audio::capture(session->mail, session->config.audio, session);
+    audio::capture(session->mail, session->config.audio,
+                   syzygy::core::session_handle {session, session->lifetime, session->generation});
   }
 
   namespace session {
     std::atomic_uint running_sessions;
-    std::atomic_uint64_t next_video_generation {1};
+    std::atomic_uint64_t next_session_generation {1};
     unsigned int active_count() { return running_sessions.load(std::memory_order_relaxed); }
 
     state_e state(session_t &session) {
@@ -2094,7 +2109,7 @@ namespace stream {
 
     void stop(session_t &session) {
       while_starting_do_nothing(session.state);
-      if (session.video_lifetime) session.video_lifetime->close();
+      if (session.lifetime) session.lifetime->close();
       auto expected = state_e::RUNNING;
       auto already_stopping = !session.state.compare_exchange_strong(expected, state_e::STOPPING);
       if (already_stopping) {
@@ -2107,7 +2122,7 @@ namespace stream {
 
     void graceful_stop(session_t& session) {
       while_starting_do_nothing(session.state);
-      if (session.video_lifetime) session.video_lifetime->close();
+      if (session.lifetime) session.lifetime->close();
       auto expected = state_e::RUNNING;
       auto already_stopping = !session.state.compare_exchange_strong(expected, state_e::STOPPING);
       if (already_stopping) {
@@ -2158,12 +2173,12 @@ namespace stream {
 
       BOOST_LOG(debug) << "Waiting for video to end..."sv;
       session.videoThread.join();
-      if (session.video_lifetime) {
-        BOOST_LOG(debug) << "Waiting for queued/in-flight video packets to release session leases..."sv;
-        session.video_lifetime->close_and_wait();
-      }
       BOOST_LOG(debug) << "Waiting for audio to end..."sv;
       session.audioThread.join();
+      if (session.lifetime) {
+        BOOST_LOG(debug) << "Waiting for queued/in-flight video and audio packets to release session leases..."sv;
+        session.lifetime->close_and_wait();
+      }
       BOOST_LOG(debug) << "Waiting for control to end..."sv;
       session.controlEnd.view();
       // Reset input on session stop to avoid stuck repeated keys
@@ -2235,7 +2250,7 @@ namespace stream {
 
       session.pingTimeout = std::chrono::steady_clock::now() + config::stream.ping_timeout;
 
-      session.audioThread = std::thread {audioThread, &session};
+      session.audioThread = std::thread {audioThread, session.shared_from_this()};
       session.videoThread = std::thread {videoThread, session.shared_from_this()};
 
       BOOST_LOG(info) << "SYZYGY_SESSION_START " << reinterpret_cast<std::uintptr_t>(&session)
@@ -2272,8 +2287,8 @@ namespace stream {
 
     std::shared_ptr<session_t> alloc(config_t &config, rtsp_stream::launch_session_t &launch_session) {
       auto session = std::make_shared<session_t>();
-      session->video_generation = next_video_generation.fetch_add(1, std::memory_order_relaxed);
-      session->video_lifetime = std::make_shared<syzygy::core::session_lifetime>(session->video_generation);
+      session->generation = next_session_generation.fetch_add(1, std::memory_order_relaxed);
+      session->lifetime = std::make_shared<syzygy::core::session_lifetime>(session->generation);
 
       auto mail = std::make_shared<safe::mail_raw_t>();
 
