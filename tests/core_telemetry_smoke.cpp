@@ -83,12 +83,18 @@ int main() {
   auto mixed = syzygy::core::assess_pipeline(sample, policy, now);
   assert(mixed.classification == bottleneck::mixed);
 
-  sample.network_rtt_ms = 10.0;
+  sample.client_decode_ms.reset();
+  sample.client_presentation_ms.reset();
+  sample.client_observed_at = {};
+  sample.network_rtt_ms.reset();
+  sample.network_rtt_variance_ms.reset();
+  sample.network_observed_at = {};
   sample.observed_at = now - 4s;
   auto stale_host = syzygy::core::assess_pipeline(sample, policy, now);
   assert(stale_host.classification == bottleneck::insufficient_data);
 
   sample.observed_at = now;
+  sample.network_rtt_ms = 10.0;
   sample.network_observed_at = now - 4s;
   auto stale_network = syzygy::core::assess_pipeline(sample, policy, now);
   assert(stale_network.classification == bottleneck::insufficient_data);
