@@ -57,6 +57,9 @@ struct telemetry_sample {
 
   // Legacy count/time feedback is retained without inventing a denominator.
   std::optional<std::uint64_t> packet_loss_count;
+  // Present only for FEC recovery-block reports; legacy loss stats have no
+  // verified packet denominator.
+  std::optional<std::uint64_t> packet_loss_total_data_packets;
   std::optional<double> packet_loss_interval_ms;
 
   // Explicit client feedback, in milliseconds. Presentation is queue + render.
