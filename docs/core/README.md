@@ -17,12 +17,14 @@ The initial implementation is a pure, deterministic C++ model. Runtime instrumen
 
 ## Current status
 
-- Telemetry value model and validation: implementation started.
-- Pipeline classification: implementation started.
-- Combined host-pipeline timing: wired per session from the existing frame-processing timestamp; does not isolate capture or encode.
-- Other host/client telemetry adapters: not started.
-- UI/diagnostic presentation: not started.
-- Automatic tuning: out of scope for milestone 0.
+- Telemetry value model, validation, and deterministic classification: implemented.
+- Host timing adapters: capture-to-encoder age, Linux KMS/X11 callback duration, conversion, NVENC frame-index timing, FFmpeg PTS-correlated timing, and internal packet queue wait are wired per session.
+- Network/loss adapters: ENet control RTT/variance, client-reported v2 media jitter, Moonlight recovery-triggered FEC block loss, and legacy count/interval feedback are parsed with independent freshness and explicit source limitations.
+- Client feedback: strict host receiver for Syzygy telemetry v1/v2 is implemented; no compatible client sender is included in this repository, so decode/presentation and media jitter remain unavailable on ordinary clients.
+- Diagnostics: structured per-session observe-only output is rate-limited to one report per five seconds.
+- Local UI/diagnostics endpoint and recommendation-only output: not implemented.
+- Physical T1600 / GTX 1060 acceptance: pending; CI software rendering does not satisfy hardware validation.
+- Automatic bitrate/FEC/resolution/frame-rate/encoder/capture/pacing changes: disabled and out of scope for this milestone.
 
 
 ## Telemetry provenance
