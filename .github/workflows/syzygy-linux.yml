@@ -75,10 +75,14 @@ jobs:
           ./tailscale-pairing-smoke
           g++ -std=c++17 -Wall -Wextra -Werror -Isrc tests/test_pipewire_memory.cpp -o pipewire-memory-smoke
           ./pipewire-memory-smoke
-      - name: Test Syzygy Core telemetry model
+      - name: Test Syzygy Core telemetry and frame feedback
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -I. tests/core_telemetry_smoke.cpp src/syzygy/core/telemetry.cpp -o /tmp/syzygy-core-telemetry-smoke
           /tmp/syzygy-core-telemetry-smoke
+          g++ -std=c++17 -Wall -Wextra -Werror -I. tests/core_frame_correlation_smoke.cpp -o /tmp/syzygy-core-frame-correlation-smoke
+          /tmp/syzygy-core-frame-correlation-smoke
+          g++ -std=c++17 -Wall -Wextra -Werror -I. tests/core_client_feedback_smoke.cpp -o /tmp/syzygy-core-client-feedback-smoke
+          /tmp/syzygy-core-client-feedback-smoke
       - name: Test bounded per-session scheduler
         run: |
           g++ -std=c++23 -Wall -Wextra -Werror -I. tests/core_session_scheduler_smoke.cpp -o /tmp/syzygy-session-scheduler-smoke
