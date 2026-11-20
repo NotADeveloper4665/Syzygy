@@ -78,7 +78,7 @@ int main() {
   auto client = syzygy::core::assess_pipeline(sample, policy, now);
   assert(client.classification == bottleneck::client_bound);
 
-  sample.client_decode_ms = 1.0;
+  sample.client_decode_ms = 12.0;
   sample.network_rtt_ms = 100.0;
   auto mixed = syzygy::core::assess_pipeline(sample, policy, now);
   assert(mixed.classification == bottleneck::mixed);
