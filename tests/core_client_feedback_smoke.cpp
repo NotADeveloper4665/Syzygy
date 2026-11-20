@@ -25,6 +25,7 @@ static void le32(std::string& out, std::uint32_t value) {
 
 int main() {
   using syzygy::core::parse_client_telemetry_v1;
+  using syzygy::core::parse_client_telemetry_v2;
   using syzygy::core::parse_fec_frame_status;
   using syzygy::core::parse_legacy_loss_stats;
 
@@ -88,5 +89,30 @@ int main() {
   invalid_client[16] = static_cast<char>(0x01);
   invalid_client[17] = static_cast<char>(0x31); // decode > 5 seconds
   assert(!parse_client_telemetry_v1(invalid_client));
+
+  std::string client_v2 = "SZY1";
+  client_v2.push_back(2); // version
+  client_v2.push_back(0); // flags
+  be16(client_v2, 32);    // payload size
+  be32(client_v2, 84);    // last frame index
+  be16(client_v2, 30);    // sample count
+  be16(client_v2, 500);   // window ms
+  be32(client_v2, 2500);  // decode average us
+  be32(client_v2, 1500);  // presentation queue average us
+  be32(client_v2, 1000);  // render average us
+  be32(client_v2, 4200);  // RFC 3550 media inter-arrival jitter us
+  auto client_v2_report = parse_client_telemetry_v2(client_v2);
+  assert(client_v2_report);
+  assert(client_v2_report->version == 2);
+  assert(client_v2_report->media_interarrival_jitter_ms);
+  assert(*client_v2_report->media_interarrival_jitter_ms == 4.2);
+  assert(!parse_client_telemetry_v1(client_v2));
+
+  auto invalid_jitter = client_v2;
+  invalid_jitter[28] = 0;
+  invalid_jitter[29] = 0x4c;
+  invalid_jitter[30] = 0x4b;
+  invalid_jitter[31] = 0x41; // 5,000,001 us
+  assert(!parse_client_telemetry_v2(invalid_jitter));
   return 0;
 }
