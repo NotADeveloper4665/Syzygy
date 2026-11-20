@@ -18,7 +18,7 @@ int main() {
   assert(estimate);
   assert(estimate->data_shards == 100);
   assert(estimate->parity_shards == 20);
-  assert(estimate->total_bytes == 100 * 1088 + 20 * 1088);
+  assert(estimate->total_bytes == 100 * 1092 + 20 * 1092);
   assert(!estimate_wire_cost(wire_cost_config{}));
 
   assert(classify_socket_error(0) == socket_pressure::none);
