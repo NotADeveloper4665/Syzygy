@@ -26,6 +26,8 @@
 - [x] Add NVENC and AVCodec/FFmpeg encode timing; FFmpeg outputs are correlated through a bounded PTS registry.
 - [x] Parse Moonlight FEC status and legacy loss feedback; preserve legacy count/time without inventing a rate.
 - [x] Add per-session ENet control RTT and RTT-variance sampling with a one-second transport ping.
+- [x] Refresh ENet RTT/variance freshness only when a new acknowledged-packet sample advances; do not refresh cached estimates by polling.
+- [x] Keep recovery-triggered FEC block loss as conditional diagnostic evidence, not an independent stream-wide network classification input.
 - [x] Add an independent freshness group and classifier input for client-reported RFC 3550 media jitter; never alias it to ENet RTT variance.
 - [x] Add strict host receiver/parser for optional Syzygy client telemetry v1/v2; v2 carries client-reported RFC 3550 media inter-arrival jitter, while a client sender remains outside this repository.
 - [x] Document source, units, timing boundary, freshness, and limitations for each wired adapter.
