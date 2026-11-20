@@ -39,7 +39,7 @@ The streaming engine remains the authority for capture, encoding, packet transpo
 
 ## 5. Telemetry contract
 
-Measurements are optional and use explicit units. Host, network, loss, and client groups carry independent monotonic observation timestamps so a fresh video frame cannot make old feedback appear current.
+Measurements are optional and use explicit units. Host, control-network, media-jitter, loss, and client groups carry independent monotonic observation timestamps so a fresh video frame cannot make old feedback appear current.
 
 | Field | Unit | Valid range | Source status |
 | --- | --- | --- | --- |
@@ -55,7 +55,7 @@ Measurements are optional and use explicit units. Host, network, loss, and clien
 | FEC-reported data loss | per mille | 0–1000 | Per-block denominator from Moonlight `SS_FRAME_FEC_STATUS`; reports only when a block required recovery |
 | Legacy loss count / interval | count / milliseconds | count >= 0; interval 1–60000 | Raw legacy feedback retained; no rate inferred |
 | Client decode latency | milliseconds | 0–5000 | Optional Syzygy `0x5506` v1/v2 receiver; no client sender in this repository |
-| Client presentation queue / render / total | milliseconds | 0–5000 | Optional Syzygy `0x5506` receiver; not physical display latency |
+| Client presentation queue / render / total | milliseconds | 0–5000 | Optional Syzygy `0x5506` v1/v2 receiver; not physical display latency |
 
 A missing measurement means unavailable, not zero. All durations use monotonic clocks at the source. Host, network, loss, and client timestamps are validated and aged independently.
 
@@ -65,7 +65,7 @@ A missing measurement means unavailable, not zero. All durations use monotonic c
 - `conversion_bound`: image conversion duration is elevated with sufficient stage coverage.
 - `encode_bound`: NVENC or FFmpeg submission-to-output latency is elevated with sufficient stage coverage.
 - `sender_queue_bound`: internal encoded-packet queue wait is elevated; this is host sender pressure, not network transit.
-- `network_bound`: fresh control-path RTT/variance or client FEC-reported block loss is elevated. RTT variance is not one-way media jitter.
+- `network_bound`: fresh control-path RTT/variance, client-reported RFC 3550 media inter-arrival jitter, or client FEC-reported block loss is elevated. RTT variance is not media-packet jitter or one-way latency.
 - `client_bound`: reserved for validated client decode/presentation feedback from the optional Syzygy extension; no ordinary client currently supplies it.
 - `host_pipeline_pressure`: aggregate host timing is elevated but detailed stages are unavailable; low confidence only.
 - `healthy`: fresh capture, encode, sender-queue, and network measurements exist and none cross a threshold.
@@ -110,6 +110,7 @@ A classification must include the measurements that triggered it, an explanation
 | CORE-AC-19 | RTT/variance provenance is explicit and not mislabeled as media jitter | Source registry and code review |
 | CORE-AC-20 | FEC loss rate uses a verified per-block denominator; legacy count/time remains raw | Parser tests |
 | CORE-AC-21 | Client feedback parser rejects malformed, stale, and out-of-window reports | Parser tests and code review |
+| CORE-AC-22 | Client media jitter is accepted only from bounded v2 feedback and remains distinct from ENet RTT variance | Parser/classifier tests and source registry |
 
 ## 9. Rollout
 
