@@ -31,10 +31,10 @@ int main() {
   assert(scheduler.enqueue(a, "a3", 200, false) == scheduler_t::admission::accepted);
   assert(scheduler.enqueue(a, "a4", 1, false) == scheduler_t::admission::capacity_exceeded);
   assert(scheduler.enqueue(a, "a5", 1, false) == scheduler_t::admission::recovery_required);
-  assert(scheduler.enqueue(a, "idr", 200, true) == scheduler_t::admission::accepted);
 
   const auto now = scheduler_t::clock::now();
   assert(scheduler.enqueue(b, "b1", 100, false, now - std::chrono::milliseconds(10)) == scheduler_t::admission::accepted);
+  assert(scheduler.enqueue(a, "idr", 200, true) == scheduler_t::admission::accepted);
   const auto b_stats = scheduler.stats(b, now);
   assert(b_stats.frames == 1 && b_stats.bytes == 100 && b_stats.oldest_age_ms >= 10.0);
 
