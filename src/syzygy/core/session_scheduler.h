@@ -80,7 +80,8 @@ public:
            value.recovery_reserve_bytes < value.global_bytes &&
            value.per_session_recovery_reserve_frames < value.per_session_frames &&
            value.per_session_recovery_reserve_bytes < value.per_session_bytes &&
-           value.quantum_bytes > 0;
+           value.quantum_bytes > 0 &&
+           value.quantum_bytes <= value.global_bytes;
   }
 
   bool register_session(session_key key, std::size_t weight = 1) {
@@ -190,7 +191,8 @@ public:
       }
 
       auto &session = it->second;
-      const auto quantum = limits_.quantum_bytes * session.weight;
+      const auto quantum = limits_.quantum_bytes > limits_.global_bytes / session.weight ?
+        limits_.global_bytes : limits_.quantum_bytes * session.weight;
       session.deficit = std::min(limits_.global_bytes, session.deficit + quantum);
       const auto item_bytes = session.queue.front().bytes;
       if (item_bytes > session.deficit) {
