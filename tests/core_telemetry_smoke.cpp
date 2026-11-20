@@ -14,6 +14,12 @@ int main() {
   using syzygy::core::telemetry_sample;
 
   const auto now = monotonic_clock::now();
+  std::uint32_t last_enet_sample = 0;
+  assert(!syzygy::core::accept_enet_rtt_sample_token(0, last_enet_sample));
+  assert(syzygy::core::accept_enet_rtt_sample_token(100, last_enet_sample));
+  assert(!syzygy::core::accept_enet_rtt_sample_token(100, last_enet_sample));
+  assert(syzygy::core::accept_enet_rtt_sample_token(101, last_enet_sample));
+  assert(syzygy::core::accept_enet_rtt_sample_token(1, last_enet_sample)); // service-clock wrap
   telemetry_policy policy;
   telemetry_sample sample;
   sample.observed_at = now;
