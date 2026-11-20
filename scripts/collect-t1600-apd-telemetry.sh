@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 077
 
 duration_seconds="${1:-300}"
 output_dir="${2:-$HOME/syzygy-t1600-apd-$(date +%Y%m%d-%H%M%S)}"
@@ -53,6 +54,7 @@ trap 'exit 143' TERM
   echo
   if command -v nvidia-smi >/dev/null 2>&1; then
     nvidia-smi -q 2>&1 || true
+    nvidia-smi encodersessions 2>&1 || true
   else
     echo "nvidia-smi unavailable"
   fi
@@ -61,18 +63,63 @@ trap 'exit 143' TERM
     lspci -nnk 2>&1 || true
   fi
   echo
+  if command -v ip >/dev/null 2>&1; then
+    ip -brief address 2>&1 || true
+    ip route 2>&1 || true
+  fi
+  echo
+  if command -v tc >/dev/null 2>&1; then
+    tc -s qdisc show 2>&1 || true
+  fi
+  echo
+  if command -v ffmpeg >/dev/null 2>&1; then
+    ffmpeg -version 2>&1 || true
+  else
+    echo "ffmpeg executable unavailable"
+  fi
+  echo
   if command -v loginctl >/dev/null 2>&1; then
     loginctl list-sessions 2>&1 || true
   fi
 } > "$output_dir/host-info.txt"
 
 if command -v nvidia-smi >/dev/null 2>&1; then
-  nvidia-smi --query-gpu=timestamp,name,driver_version,utilization.gpu,utilization.memory,memory.used,temperature.gpu,power.draw,clocks.gr,clocks.mem --format=csv -l 1 \
+  nvidia-smi --query-gpu=timestamp,name,driver_version,utilization.gpu,utilization.encoder,utilization.decoder,utilization.memory,memory.used,temperature.gpu,power.draw,clocks.gr,clocks.mem --format=csv -l 1 \
     > "$output_dir/gpu.csv" 2>&1 &
   pids+=("$!")
 
   nvidia-smi pmon -s um -d 1 > "$output_dir/gpu-process.csv" 2>&1 &
   pids+=("$!")
+fi
+
+# Record host-local network pressure independently from ENet control RTT.
+# Override SYZYGY_T1600_INTERFACE when the stream path uses a non-default NIC.
+network_interface="${SYZYGY_T1600_INTERFACE:-}"
+if [[ -z "$network_interface" ]] && command -v ip >/dev/null 2>&1; then
+  network_interface="$(ip route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; ++i) if ($i == "dev") {print $(i + 1); exit}}')"
+fi
+if [[ -n "$network_interface" ]]; then
+  (
+    sample_index=0
+    while true; do
+      echo "timestamp=$(date --iso-8601=ns)"
+      ip -s link show dev "$network_interface" 2>&1 || true
+      if command -v tc >/dev/null 2>&1; then
+        tc -s qdisc show dev "$network_interface" 2>&1 || true
+      fi
+      if command -v nstat >/dev/null 2>&1; then
+        nstat -az 2>&1 || true
+      fi
+      if (( sample_index % 5 == 0 )) && command -v ethtool >/dev/null 2>&1; then
+        ethtool -S "$network_interface" 2>&1 || true
+      fi
+      sample_index=$((sample_index + 1))
+      sleep 1
+    done
+  ) > "$output_dir/network-counters.log" 2>&1 &
+  pids+=("$!")
+else
+  echo "No network interface resolved; set SYZYGY_T1600_INTERFACE to collect NIC counters." > "$output_dir/network-counters.log"
 fi
 
 if command -v pidstat >/dev/null 2>&1; then
@@ -91,6 +138,8 @@ fi
 
 if command -v journalctl >/dev/null 2>&1; then
   journalctl --user -f -o short-iso > "$output_dir/user-journal.log" 2>&1 &
+  pids+=("$!")
+  journalctl -k -f -o short-iso > "$output_dir/kernel-journal.log" 2>&1 &
   pids+=("$!")
 fi
 
