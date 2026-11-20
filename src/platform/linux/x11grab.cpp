@@ -651,13 +651,12 @@ namespace platf {
       } else {
         const auto capture_started_at = std::chrono::steady_clock::now();
         auto img_cookie = xcb::shm_get_image_unchecked(xcb.get(), display->root, offset_x, offset_y, width, height, ~0, XCB_IMAGE_FORMAT_Z_PIXMAP, seg, 0);
-        auto frame_timestamp = std::chrono::steady_clock::now();
-
         xcb_img_t img_reply {xcb::shm_get_image_reply(xcb.get(), img_cookie, nullptr)};
         if (!img_reply) {
           BOOST_LOG(error) << "Could not get image reply"sv;
           return capture_e::reinit;
         }
+        const auto frame_timestamp = std::chrono::steady_clock::now();
 
         if (!pull_free_image_cb(img_out)) {
           return platf::capture_e::interrupted;
