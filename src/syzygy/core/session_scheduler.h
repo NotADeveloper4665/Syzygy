@@ -193,7 +193,8 @@ public:
       auto &session = it->second;
       const auto quantum = limits_.quantum_bytes > limits_.global_bytes / session.weight ?
         limits_.global_bytes : limits_.quantum_bytes * session.weight;
-      session.deficit = std::min(limits_.global_bytes, session.deficit + quantum);
+      session.deficit = quantum > limits_.global_bytes - session.deficit ?
+        limits_.global_bytes : session.deficit + quantum;
       const auto item_bytes = session.queue.front().bytes;
       if (item_bytes > session.deficit) {
         continue;
