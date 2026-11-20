@@ -275,7 +275,10 @@ namespace video {
     syzygy::core::session_handle session;
     std::optional<syzygy::core::session_lifetime::lease> session_lease;
     bool after_ref_frame_invalidation = false;
+    // Timestamp used by the existing Moonlight frame-processing latency header.
     std::optional<std::chrono::steady_clock::time_point> frame_timestamp;
+    // Unadjusted source capture timestamp used only for APD host-pipeline timing.
+    std::optional<std::chrono::steady_clock::time_point> core_frame_timestamp;
     // Capture timestamp to encoder-consumption age; includes mailbox wait.
     std::optional<double> capture_ms;
     // Platform capture callback duration, when the backend exposes a verified boundary.
