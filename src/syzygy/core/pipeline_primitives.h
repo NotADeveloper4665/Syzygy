@@ -37,7 +37,11 @@ inline std::optional<wire_cost> estimate_wire_cost(const wire_cost_config &cfg) 
       cfg.payload_bytes == 0) {
     return std::nullopt;
   }
-  const auto data = (cfg.payload_bytes + cfg.packet_payload_bytes - 1) / cfg.packet_payload_bytes;
+  const auto data = cfg.payload_bytes / cfg.packet_payload_bytes +
+                    (cfg.payload_bytes % cfg.packet_payload_bytes != 0);
+  if (data > (static_cast<std::size_t>(-1) - 99) / std::max(1u, cfg.fec_percent)) {
+    return std::nullopt;
+  }
   const auto parity_by_percent = (data * cfg.fec_percent + 99) / 100;
   const auto parity = std::max<std::size_t>(cfg.minimum_parity_shards, parity_by_percent);
   const auto per_packet = cfg.packet_payload_bytes + cfg.rtp_header_bytes +
