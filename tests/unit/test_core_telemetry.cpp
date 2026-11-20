@@ -50,6 +50,19 @@ TEST(CoreTelemetry, RejectsNonFiniteAndOutOfRangeMeasurements) {
   EXPECT_FALSE(syzygy::core::valid_sample(sample));
 }
 
+TEST(CoreTelemetry, RejectsInvalidFecLossDenominator) {
+  telemetry_sample sample;
+  sample.packet_loss_count = 4;
+  sample.packet_loss_total_data_packets = 3;
+  EXPECT_FALSE(syzygy::core::valid_sample(sample));
+
+  sample.packet_loss_count = 3;
+  EXPECT_TRUE(syzygy::core::valid_sample(sample));
+
+  sample.packet_loss_total_data_packets = 0;
+  EXPECT_FALSE(syzygy::core::valid_sample(sample));
+}
+
 TEST(CoreTelemetry, RejectsInvalidPolicy) {
   telemetry_policy policy;
   policy.encode_threshold_ms = 0.0;
