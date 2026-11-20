@@ -67,6 +67,7 @@ The capture mailbox already solves one major Rubylight problem. The largest stru
 - [ ] Measure packetization/FEC time, sender wait time, socket submission time and frame first-packet time.
 - [x] Add control-channel RTT/variance and client FEC/legacy loss feedback to Core with source limitations documented.
 - [x] Add a strict optional client decode/presentation feedback receiver contract; no client sender is included.
+- [x] Add a strict v2 receiver for client-reported RFC 3550 RTP inter-arrival jitter with an independent freshness timestamp; sender remains outside this repository.
 - [ ] Record dropped/replaced frames by reason, frame type and recovery action.
 - [ ] Add multi-session stress tests for isolation and monotonic frame/packet numbers.
 
@@ -116,7 +117,7 @@ Acceptance: GPU trace confirms no unnecessary CPU readback on the supported path
 
 ### Phase F — Pacing and APD integration
 
-- [x] Feed control-channel RTT/variance and FEC/legacy loss feedback into Core telemetry; media-path jitter and socket outcomes remain pending.
+- [x] Feed control-channel RTT/variance, FEC/legacy loss feedback, and optional v2 client media jitter into Core telemetry; media jitter remains unavailable without a compatible client sender.
 - [x] Define the optional client decode/presentation receiver; client sender validation remains pending.
 - [ ] Reuse the existing WAN controller and expose its decisions as evidence.
 - [ ] Add APD recommendation-only output only after telemetry coverage is adequate.
