@@ -2383,7 +2383,8 @@ namespace video {
           synced_sessions.emplace_back(std::move(*encode_session));
         }
 
-        KITTY_WHILE_LOOP(auto pos = std::begin(synced_sessions), pos != std::end(synced_sessions), {
+        auto pos = std::begin(synced_sessions);
+        while (pos != std::end(synced_sessions)) {
           auto ctx = pos->ctx;
           if (ctx->shutdown_event->peek()) {
             // Let waiting thread know it can delete shutdown_event
@@ -2444,7 +2445,7 @@ namespace video {
           pos->session->request_normal_frame();
 
           ++pos;
-        })
+        }
 
         if (switch_display_event->peek()) {
           ec = platf::capture_e::reinit;
