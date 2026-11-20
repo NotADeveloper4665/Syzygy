@@ -26,7 +26,7 @@ CI software-rendered capture tests do not satisfy this hardware acceptance.
 bash scripts/collect-t1600-apd-telemetry.sh 300 ~/syzygy-t1600-run-01
 ```
 
-The collector records host/GPU information, one-second GPU utilization and process telemetry, process CPU/RSS, the user journal, and the known Syzygy service log when present. It creates a compressed bundle next to the output directory. It does not start a stream or change system settings.
+The collector records host/GPU information, one-second GPU and encoder utilization, process CPU/RSS, network-interface counters and qdisc statistics, the user and kernel journals, and the known Syzygy service log when present. It does not generate network traffic or change system settings. It creates a compressed bundle next to the output directory. It does not start a stream or change system settings.
 
 For a longer soak:
 
@@ -57,8 +57,10 @@ If a requested mode is unsupported, record the failure and actual negotiated mod
 - NVENC or FFmpeg submission-to-matching-output duration
 - internal packet queue wait and combined host pipeline time
 - control-channel RTT and RTT variance; do not label these as media-path jitter
+- client-reported RFC 3550 media inter-arrival jitter only when a compatible v2 sender is present
 - FEC-reported per-block loss and recovery counts when the client sends them
-- client decode/presentation values only if a compatible `0x5506` sender is present
+- client decode/presentation values only if a compatible `0x5506` v1/v2 sender is present
+- client media inter-arrival jitter only if that sender supports v2
 - GPU utilization, memory use, temperature, power, and clocks
 - CPU utilization and process load
 - client-reported frame rate and visible stutter/latency observations
@@ -84,7 +86,7 @@ If a requested mode is unsupported, record the failure and actual negotiated mod
 ## Outstanding limitations
 
 - The physical T1600 workload matrix remains unrun.
-- Media-path inter-arrival jitter is not yet measured; ENet RTT variance is only a control-path proxy.
+- Media-path inter-arrival jitter has a strict v2 host receiver, but is not measured by ordinary clients because no sender is included in this repository; ENet RTT variance remains only a control-path proxy.
 - Packetizer/FEC duration, socket submission duration, and send errors are not yet separate telemetry stages.
 - Encoder in-flight depth and GPU surface completion are not yet connected to runtime telemetry.
 - The `0x5506` client feedback receiver exists, but no client sender is included in this repository.
