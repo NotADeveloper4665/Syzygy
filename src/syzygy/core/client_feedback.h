@@ -28,6 +28,25 @@ struct legacy_loss_stats {
   std::uint32_t interval_ms {};
 };
 
+// Frame indices are 32-bit serial numbers. Use half-range arithmetic so
+// recent feedback remains valid across the uint32 wrap boundary.
+inline bool frame_index_is_recent(
+    std::uint32_t candidate,
+    std::uint32_t latest,
+    std::uint32_t max_age = 512) noexcept {
+  if (candidate == 0 || latest == 0 || max_age >= 0x80000000u) return false;
+  const auto age = latest - candidate;
+  return age <= max_age && age < 0x80000000u;
+}
+
+inline bool frame_index_is_newer(
+    std::uint32_t candidate,
+    std::uint32_t previous) noexcept {
+  if (candidate == 0 || previous == 0 || candidate == previous) return false;
+  const auto distance = candidate - previous;
+  return distance < 0x80000000u;
+}
+
 struct client_telemetry_report {
   std::uint8_t version {};
   std::uint32_t last_frame_index {};
