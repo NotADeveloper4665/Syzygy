@@ -1,7 +1,9 @@
 #include <cassert>
+#include <atomic>
 #include <cerrno>
 #include <cstddef>
 #include <utility>
+#include <thread>
 
 #include <src/syzygy/core/pipeline_primitives.h>
 
@@ -49,5 +51,25 @@ int main() {
   assert(gpu_surface.complete());
   assert(!gpu_surface.complete());
   assert(gpu_surface.is_complete());
+  gpu_surface.wait();
+
+  session_lifetime lifetime {9};
+  auto in_flight = lifetime.acquire(9);
+  assert(in_flight && in_flight->generation() == 9);
+  assert(!lifetime.acquire(8));
+  std::atomic<bool> drained {false};
+  std::thread teardown {[&] {
+    lifetime.close_and_wait();
+    drained.store(true);
+  }};
+  while (lifetime.acquire(9)) {
+    assert(false && "closed session accepted a new owner");
+  }
+  assert(!drained.load());
+  in_flight->release();
+  teardown.join();
+  assert(drained.load());
+  assert(lifetime.outstanding() == 0);
+  assert(!lifetime.acquire(9));
   return 0;
 }
