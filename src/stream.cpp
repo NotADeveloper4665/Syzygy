@@ -368,6 +368,9 @@ namespace stream {
     syzygy::core::telemetry_sample core_telemetry;
     std::chrono::steady_clock::time_point core_last_diagnostic_at {};
     std::chrono::steady_clock::time_point core_last_enet_ping_at {};
+    // ENet's lastReceiveTime advances when an acknowledged packet updates its
+    // RTT estimator. Polling the same cached RTT must not refresh telemetry.
+    std::uint32_t core_last_enet_rtt_receive_time {};
     std::uint32_t core_last_started_frame_index {};
     std::uint32_t core_last_sent_frame_index {};
     std::uint32_t core_last_client_feedback_frame {};
@@ -1334,6 +1337,15 @@ namespace stream {
             session->core_last_enet_ping_at = observed_at;
           }
 
+          // ENet initializes roundTripTime to a default estimate. Its
+          // lastReceiveTime advances with an acknowledged packet, alongside
+          // the RTT estimator update. Only a new token is a fresh observation;
+          // otherwise the old cached value would appear fresh on every poll.
+          const auto rtt_sample_time = peer->lastReceiveTime;
+          if (rtt_sample_time == 0 || rtt_sample_time == session->core_last_enet_rtt_receive_time) {
+            continue;
+          }
+
           const auto rtt_ms = peer->roundTripTime;
           const auto variance_ms = peer->roundTripTimeVariance;
           if (rtt_ms == 0 || rtt_ms > 5000 || variance_ms > 5000) {
@@ -1341,6 +1353,7 @@ namespace stream {
           }
 
           std::lock_guard<std::mutex> telemetry_lock {session->core_telemetry_mutex};
+          session->core_last_enet_rtt_receive_time = rtt_sample_time;
           session->core_telemetry.network_rtt_ms = static_cast<double>(rtt_ms);
           session->core_telemetry.network_rtt_variance_ms = static_cast<double>(variance_ms);
           session->core_telemetry.network_observed_at = observed_at;
