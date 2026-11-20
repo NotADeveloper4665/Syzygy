@@ -4,6 +4,8 @@
  */
 #pragma once
 
+#include <chrono>
+#include <optional>
 #include <string>
 
 #include "syzygy/core/pipeline_primitives.h"
@@ -274,9 +276,13 @@ namespace video {
     std::optional<syzygy::core::session_lifetime::lease> session_lease;
     bool after_ref_frame_invalidation = false;
     std::optional<std::chrono::steady_clock::time_point> frame_timestamp;
-    // Capture timestamp to encoder-consumption age; not pure capture-backend latency.
+    // Capture timestamp to encoder-consumption age; includes mailbox wait.
     std::optional<double> capture_ms;
-    // NVENC API submission-to-output latency; absent without a verified boundary.
+    // Platform capture callback duration, when the backend exposes a verified boundary.
+    std::optional<double> capture_backend_ms;
+    // Image conversion call duration; not encoder time.
+    std::optional<double> conversion_ms;
+    // Encoder submission-to-output availability; not pure GPU execution time.
     std::optional<double> encode_ms;
     // Time immediately before publishing this packet to the shared broadcaster queue.
     std::chrono::steady_clock::time_point queued_at {};
