@@ -36,7 +36,7 @@ AVCodec output can be delayed or reordered relative to the frame most recently s
 
 ### Moonlight FEC status
 
-`SS_FRAME_FEC_STATUS` is the client-to-host `0x5502` message defined by moonlight-common-c. Its multi-byte fields are network byte order. The client populates the frame index, FEC block index/count, FEC percentage, total data shards, and directly received data shards before recovery. Syzygy validates the exact 21-byte payload, rejects impossible counters and FEC percentages outside 0–100, accepts only frames for which at least one FEC block has entered the host send path and which are within 512 frames of that bound, and deduplicates the last 64 frame/block keys per session.
+`SS_FRAME_FEC_STATUS` is the client-to-host `0x5502` message defined by moonlight-common-c. Its multi-byte fields are network byte order. The client populates the frame index, FEC block index/count, FEC percentage, total data shards, and directly received data shards before recovery. Syzygy validates the exact 21-byte payload, rejects impossible counters and FEC percentages outside 0–100, accepts only frames for which at least one FEC block has entered the host send path and which are within 512 frames of that bound using wrap-safe 32-bit serial arithmetic, and deduplicates the last 64 frame/block keys per session.
 
 The denominator is the reported block's `totalDataPackets`. Since the client reports blocks that needed recovery, the result is a recovery-triggered block sample, not a continuous loss estimate. See upstream definitions in [Video.h](https://github.com/moonlight-stream/moonlight-common-c/blob/master/src/Video.h) and population in [RtpVideoQueue.c](https://github.com/moonlight-stream/moonlight-common-c/blob/master/src/RtpVideoQueue.c).
 
@@ -46,7 +46,7 @@ Legacy `IDX_LOSS_STATS` is accepted only at its exact 32-byte size. Syzygy reads
 
 ### Client decode and presentation
 
-The optional Syzygy `0x5506` extension is specified in [CLIENT-TELEMETRY-PROTOCOL.md](CLIENT-TELEMETRY-PROTOCOL.md). The host parser validates v1/v2 magic, version, exact length, duration bounds, v2 jitter bounds, and recent frame index. V1 supplies decode/presentation; v2 additionally supplies RFC 3550 media inter-arrival jitter. This repository contains no client sender, so these values remain unavailable on ordinary sessions.
+The optional Syzygy `0x5506` extension is specified in [CLIENT-TELEMETRY-PROTOCOL.md](CLIENT-TELEMETRY-PROTOCOL.md). The host parser validates v1/v2 magic, version, exact length, duration bounds, v2 jitter bounds, and a recent frame index using wrap-safe 32-bit serial arithmetic. V1 supplies decode/presentation; v2 additionally supplies RFC 3550 media inter-arrival jitter. This repository contains no client sender, so these values remain unavailable on ordinary sessions.
 
 ## Known but not connected
 
