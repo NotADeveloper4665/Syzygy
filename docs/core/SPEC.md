@@ -31,7 +31,7 @@ The streaming engine remains the authority for capture, encoding, packet transpo
 
 - Changing bitrate, FEC, resolution, frame rate, encoder, capture backend, or packet pacing.
 - Restarting or recovering processes.
-- Treating standard Moonlight feedback as a source of client decode/presentation latency when it does not provide those values.
+- Treating standard Moonlight feedback as a source of client decode/presentation latency when it does not provide those values. The currently unused `0x0204` Frame Stats message is not treated as a telemetry source.
 - Claiming host-side send latency is equivalent to client display latency.
 - Replacing or bypassing existing WAN pacing and `wan_state` behavior.
 - Persisting telemetry or collecting personally identifying usage data.
