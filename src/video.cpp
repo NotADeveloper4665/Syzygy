@@ -1433,7 +1433,7 @@ namespace video {
     return true;
   }
 
-  int encode_avcodec(int64_t frame_nr, avcodec_encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, const syzygy::core::session_handle &session_owner, std::optional<std::chrono::steady_clock::time_point> frame_timestamp, std::optional<double> capture_ms, std::optional<double> capture_backend_ms, std::optional<double> conversion_ms) {
+  int encode_avcodec(int64_t frame_nr, avcodec_encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, const syzygy::core::session_handle &session_owner, std::optional<std::chrono::steady_clock::time_point> frame_timestamp, std::optional<std::chrono::steady_clock::time_point> core_frame_timestamp, std::optional<double> capture_ms, std::optional<double> capture_backend_ms, std::optional<double> conversion_ms) {
     auto &frame = session.device->frame;
     frame->pts = frame_nr;
 
@@ -1482,6 +1482,7 @@ namespace video {
     timing_record.pts = frame_nr;
     timing_record.submitted_at = submitted_at;
     timing_record.frame_timestamp = frame_timestamp;
+    timing_record.core_frame_timestamp = core_frame_timestamp;
     timing_record.capture_ms = capture_ms;
     timing_record.capture_backend_ms = capture_backend_ms;
     timing_record.conversion_ms = conversion_ms;
@@ -1538,6 +1539,7 @@ namespace video {
       if (av_packet->pts != AV_NOPTS_VALUE) {
         if (auto timing = session.frame_timings.take(av_packet->pts)) {
           packet->frame_timestamp = timing->frame_timestamp;
+          packet->core_frame_timestamp = timing->core_frame_timestamp;
           packet->capture_ms = timing->capture_ms;
           packet->capture_backend_ms = timing->capture_backend_ms;
           packet->conversion_ms = timing->conversion_ms;
@@ -1560,7 +1562,7 @@ namespace video {
     return 0;
   }
 
-  int encode_nvenc(int64_t frame_nr, nvenc_encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, const syzygy::core::session_handle &session_owner, std::optional<std::chrono::steady_clock::time_point> frame_timestamp, std::optional<double> capture_ms, std::optional<double> capture_backend_ms, std::optional<double> conversion_ms) {
+  int encode_nvenc(int64_t frame_nr, nvenc_encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, const syzygy::core::session_handle &session_owner, std::optional<std::chrono::steady_clock::time_point> frame_timestamp, std::optional<std::chrono::steady_clock::time_point> core_frame_timestamp, std::optional<double> capture_ms, std::optional<double> capture_backend_ms, std::optional<double> conversion_ms) {
     const auto encode_started_at = std::chrono::steady_clock::now();
     auto encoded_frame = session.encode_frame(frame_nr);
     const auto encode_completed_at = std::chrono::steady_clock::now();
@@ -1578,6 +1580,7 @@ namespace video {
     packet->after_ref_frame_invalidation = encoded_frame.after_ref_frame_invalidation;
     if (frame_nr == encoded_frame.frame_index) {
       packet->frame_timestamp = frame_timestamp;
+      packet->core_frame_timestamp = core_frame_timestamp;
       packet->capture_ms = capture_ms;
       packet->capture_backend_ms = capture_backend_ms;
       packet->conversion_ms = conversion_ms;
@@ -1589,11 +1592,11 @@ namespace video {
     return 0;
   }
 
-  int encode(int64_t frame_nr, encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, const syzygy::core::session_handle &session_owner, std::optional<std::chrono::steady_clock::time_point> frame_timestamp, std::optional<double> capture_ms = std::nullopt, std::optional<double> capture_backend_ms = std::nullopt, std::optional<double> conversion_ms = std::nullopt) {
+  int encode(int64_t frame_nr, encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, const syzygy::core::session_handle &session_owner, std::optional<std::chrono::steady_clock::time_point> frame_timestamp, std::optional<std::chrono::steady_clock::time_point> core_frame_timestamp, std::optional<double> capture_ms = std::nullopt, std::optional<double> capture_backend_ms = std::nullopt, std::optional<double> conversion_ms = std::nullopt) {
     if (auto avcodec_session = dynamic_cast<avcodec_encode_session_t *>(&session)) {
-      return encode_avcodec(frame_nr, *avcodec_session, packets, session_owner, frame_timestamp, capture_ms, capture_backend_ms, conversion_ms);
+      return encode_avcodec(frame_nr, *avcodec_session, packets, session_owner, frame_timestamp, core_frame_timestamp, capture_ms, capture_backend_ms, conversion_ms);
     } else if (auto nvenc_session = dynamic_cast<nvenc_encode_session_t *>(&session)) {
-      return encode_nvenc(frame_nr, *nvenc_session, packets, session_owner, frame_timestamp, capture_ms, capture_backend_ms, conversion_ms);
+      return encode_nvenc(frame_nr, *nvenc_session, packets, session_owner, frame_timestamp, core_frame_timestamp, capture_ms, capture_backend_ms, conversion_ms);
     }
 
     return -1;
@@ -2076,7 +2079,7 @@ namespace video {
       BOOST_LOG(info) << "Input only session, video will not be captured."sv;
 
       // Encode the dummy img only once
-      if (encode(frame_nr++, *session, packets, session_owner, std::nullopt)) {
+      if (encode(frame_nr++, *session, packets, session_owner, std::nullopt, std::nullopt)) {
         BOOST_LOG(error) << "Could not encode dummy video packet"sv;
         return;
       }
@@ -2123,6 +2126,7 @@ namespace video {
       }
 
       std::optional<std::chrono::steady_clock::time_point> frame_timestamp;
+      std::optional<std::chrono::steady_clock::time_point> core_frame_timestamp;
       std::optional<double> capture_ms;
       std::optional<double> capture_backend_ms;
       std::optional<double> conversion_ms;
@@ -2131,11 +2135,12 @@ namespace video {
       if (!requested_idr_frame || images->peek()) {
         if (auto img = images->pop(max_frametime)) {
           frame_timestamp = img->frame_timestamp;
+          core_frame_timestamp = img->frame_timestamp;
           capture_backend_ms = img->capture_duration_ms;
-          if (frame_timestamp) {
+          if (core_frame_timestamp) {
             // This is capture timestamp to encoder consumption age, including mailbox wait;
             // it is not a measurement of the capture backend's own execution time.
-            capture_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - *frame_timestamp).count();
+            capture_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - *core_frame_timestamp).count();
           }
           if (!frame_timestamp && !missing_frame_timestamp_warning_logged) {
             BOOST_LOG(warning) << "Encoder received image without frame timestamp; capture-age and host-pipeline telemetry will remain unavailable"sv;
@@ -2172,7 +2177,7 @@ namespace video {
         }
       }
 
-      if (encode(frame_nr++, *session, packets, session_owner, frame_timestamp, capture_ms, capture_backend_ms, conversion_ms)) {
+      if (encode(frame_nr++, *session, packets, session_owner, frame_timestamp, core_frame_timestamp, capture_ms, capture_backend_ms, conversion_ms)) {
         BOOST_LOG(error) << "Could not encode video packet"sv;
         break;
       }
@@ -2407,10 +2412,11 @@ namespace video {
           std::optional<double> conversion_ms;
           if (img) {
             frame_timestamp = img->frame_timestamp;
+            core_frame_timestamp = img->frame_timestamp;
             capture_backend_ms = img->capture_duration_ms;
-            if (frame_timestamp) {
+            if (core_frame_timestamp) {
               capture_ms = std::chrono::duration<double, std::milli>(
-                  std::chrono::steady_clock::now() - *frame_timestamp).count();
+                  std::chrono::steady_clock::now() - *core_frame_timestamp).count();
             }
           }
 
@@ -2427,7 +2433,7 @@ namespace video {
           }
 
           if (encode(ctx->frame_nr++, *pos->session, ctx->packets, ctx->session,
-                     frame_timestamp, capture_ms, capture_backend_ms, conversion_ms)) {
+                     frame_timestamp, core_frame_timestamp, capture_ms, capture_backend_ms, conversion_ms)) {
             BOOST_LOG(error) << "Could not encode video packet"sv;
             ctx->shutdown_event->raise(true);
 
