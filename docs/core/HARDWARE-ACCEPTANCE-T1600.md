@@ -61,8 +61,7 @@ If a requested mode is unsupported, record the failure and actual negotiated mod
 - control-channel RTT and RTT variance; do not label these as media-path jitter
 - client-reported RFC 3550 media inter-arrival jitter only when a compatible v2 sender is present
 - FEC-reported per-block loss and recovery counts when the client sends them
-- client decode/presentation values only if a compatible `0x5506` v1/v2 sender is present
-- client media inter-arrival jitter only if that sender supports v2
+- client decode/presentation values only if a compatible `0x5506` v1/v2 sender is present; media inter-arrival jitter is available only from v2
 - GPU utilization, memory use, temperature, power, and clocks
 - CPU utilization and process load
 - client-reported frame rate and visible stutter/latency observations
@@ -76,6 +75,9 @@ If a requested mode is unsupported, record the failure and actual negotiated mod
 - Conversion is distinguishable from capture and encoder submission/output.
 - NVENC and FFmpeg timing is present only for frame-index/PTS-matched output.
 - FFmpeg delayed/reordered output never receives the most recently submitted frame's metadata.
+- APD host-pipeline time uses the unadjusted source capture timestamp, not the cadence-adjusted Moonlight frame-header timestamp.
+- Missing source timestamps leave capture age and combined host-pipeline time unavailable; local scheduler time is never substituted.
+- V2 client media jitter remains distinct from ENet RTT variance and expires independently.
 - Queue wait is distinguishable from socket/network delivery.
 - Control RTT/variance is labeled as ENet control-path telemetry, not one-way media latency.
 - FEC loss uses the reported block denominator; no report is not treated as zero.
