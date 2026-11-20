@@ -52,7 +52,7 @@
 Specification: [LOW-LATENCY-PIPELINE-SPEC.md](LOW-LATENCY-PIPELINE-SPEC.md)
 
 ### Phase A — instrument before changing scheduling
-- [ ] Measure capture publication-to-encoder-consumption age per session.
+- [x] Measure capture timestamp-to-encoder-consumption age per session, matched to encoded output by PTS/frame index; it includes mailbox wait, not capture-backend execution.
 - [ ] Measure conversion duration separately from encoder submission/output.
 - [ ] Measure encoder in-flight count and output age.
 - [ ] Measure encoded packet queue depth, oldest packet age and per-session occupancy.
