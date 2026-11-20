@@ -51,9 +51,10 @@ Measurements are optional and use explicit units. Host, network, loss, and clien
 | Combined host pipeline latency | milliseconds | 0–5000 | Captured-frame timestamp to broadcaster observation; aggregate only |
 | Control-channel RTT | milliseconds | 0–5000 | ENet peer smoothed RTT sampled with a low-rate transport ping |
 | Control-channel RTT variance | milliseconds | 0–5000 | ENet RTT-variance estimator; path-variation proxy, not media packet jitter |
+| Client media inter-arrival jitter | milliseconds | 0–5000 | Optional Syzygy `0x5506` v2; RFC 3550 RTP inter-arrival jitter converted using the negotiated RTP clock rate; no sender in this repository |
 | FEC-reported data loss | per mille | 0–1000 | Per-block denominator from Moonlight `SS_FRAME_FEC_STATUS`; reports only when a block required recovery |
 | Legacy loss count / interval | count / milliseconds | count >= 0; interval 1–60000 | Raw legacy feedback retained; no rate inferred |
-| Client decode latency | milliseconds | 0–5000 | Optional Syzygy `0x5506` receiver; no client sender in this repository |
+| Client decode latency | milliseconds | 0–5000 | Optional Syzygy `0x5506` v1/v2 receiver; no client sender in this repository |
 | Client presentation queue / render / total | milliseconds | 0–5000 | Optional Syzygy `0x5506` receiver; not physical display latency |
 
 A missing measurement means unavailable, not zero. All durations use monotonic clocks at the source. Host, network, loss, and client timestamps are validated and aged independently.
@@ -128,12 +129,12 @@ NVENC timing is API-entry to matching output availability. FFmpeg timing is succ
 
 The shared packet queue wait is measured from publication to broadcaster dequeue. It is not network transit. Network RTT and RTT variance come from the owning ENet control peer; RTT variance is a control-path variation proxy, not media-packet jitter. Client FEC status `0x5502` supplies a per-block loss denominator for blocks requiring recovery. Legacy loss count and interval are retained without a derived rate.
 
-The optional Syzygy client telemetry receiver `0x5506` accepts only the documented v1 payload and a recent host frame index. It is host-side only in this repository; no client sender is included, so ordinary sessions still report client decode/presentation as unavailable.
+The optional Syzygy client telemetry receiver `0x5506` accepts documented v1/v2 payloads and a recent host frame index. V2 adds client-reported RFC 3550 media inter-arrival jitter. It is host-side only in this repository; no client sender is included, so ordinary sessions still report client decode/presentation and media jitter as unavailable.
 
 ## 11. Open questions
 
 - Which approved client implementation will send the optional decode/presentation feedback extension, and can its decoder/render APIs provide stable duration boundaries?
-- What source can provide media-path inter-arrival jitter separately from ENet control RTT variance?
+- Which compatible client sender will provide the v2 RFC 3550 media inter-arrival jitter estimate separately from ENet control RTT variance?
 - How should packetizer/FEC duration and socket submission/error telemetry be separated from sender queue wait?
 - Which host APIs provide comparable capture and encoder stage timings across KMS, X11, NVENC, VAAPI, and software encoding?
 - Can the existing WAN feedback controller be reused behind a Core policy interface, or should it remain an engine-owned actuator?
