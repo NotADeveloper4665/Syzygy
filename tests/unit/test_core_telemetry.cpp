@@ -87,6 +87,20 @@ TEST(CoreTelemetry, IdentifiesNetworkBoundPipeline) {
   EXPECT_EQ(syzygy::core::assess_pipeline(sample, telemetry_policy {}, now).classification, bottleneck::network_bound);
 }
 
+TEST(CoreTelemetry, ClientMediaJitterIsNetworkEvidenceWithIndependentFreshness) {
+  const auto now = monotonic_clock::now();
+  auto sample = baseline_sample(now);
+  sample.network_observed_at = now;
+  sample.client_media_jitter_ms = 9.0;
+  sample.media_jitter_observed_at = now;
+  EXPECT_EQ(syzygy::core::assess_pipeline(sample, telemetry_policy {}, now).classification, bottleneck::network_bound);
+
+  sample.media_jitter_observed_at = now - 4s;
+  sample.network_rtt_ms.reset();
+  sample.network_observed_at = {};
+  EXPECT_EQ(syzygy::core::assess_pipeline(sample, telemetry_policy {}, now).classification, bottleneck::insufficient_data);
+}
+
 TEST(CoreTelemetry, CombinedHostPipelineMeasurementDoesNotInventAStage) {
   const auto now = monotonic_clock::now();
   telemetry_sample sample;
