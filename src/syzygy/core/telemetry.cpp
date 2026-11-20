@@ -133,9 +133,11 @@ pipeline_assessment assess_pipeline(
   const bool conversion_observed = host_fresh && sample.conversion_ms.has_value();
   const bool encode_observed = host_fresh && sample.encode_ms.has_value();
   const bool sender_queue_observed = host_fresh && sample.send_queue_ms.has_value();
+  // FEC status is emitted only for blocks that needed recovery. It is
+  // useful diagnostic evidence, but it is not an unbiased stream-wide loss
+  // sample and must not independently satisfy or elevate the network stage.
   const bool network_observed = (network_fresh && (sample.network_rtt_ms || sample.network_rtt_variance_ms)) ||
-                                (media_jitter_fresh && sample.client_media_jitter_ms.has_value()) ||
-                                (loss_fresh && sample.packet_loss_per_mille.has_value());
+                                (media_jitter_fresh && sample.client_media_jitter_ms.has_value());
   const bool client_observed = client_fresh && client_has_data;
 
   const unsigned int observed = static_cast<unsigned int>(capture_observed) +
@@ -154,8 +156,7 @@ pipeline_assessment assess_pipeline(
   const bool network =
       (network_fresh && (elevated(sample.network_rtt_ms, policy.network_rtt_threshold_ms) ||
                          elevated(sample.network_rtt_variance_ms, policy.network_rtt_variance_threshold_ms))) ||
-      (media_jitter_fresh && elevated(sample.client_media_jitter_ms, policy.media_jitter_threshold_ms)) ||
-      (loss_fresh && elevated(sample.packet_loss_per_mille, policy.packet_loss_threshold_per_mille));
+      (media_jitter_fresh && elevated(sample.client_media_jitter_ms, policy.media_jitter_threshold_ms));
   const bool host_pipeline_elevated = host_fresh && elevated(sample.host_pipeline_ms, policy.host_pipeline_threshold_ms);
   const bool client = client_observed &&
       (elevated(sample.client_decode_ms, policy.client_decode_threshold_ms) ||
