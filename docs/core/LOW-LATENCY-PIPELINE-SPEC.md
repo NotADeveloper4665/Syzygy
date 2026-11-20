@@ -187,3 +187,81 @@ move encoded-frame publication to the per-session scheduler, then split the
 packetizer from the paced sender with a bounded block handoff. Keep this
 distinction explicit in status reports until the runtime path and its teardown
 tests are complete.
+
+
+## 11. Follow-up gaps and new reusable primitives (2026-11-20)
+
+A second implementation pass adds platform-neutral primitives in
+`src/syzygy/core/pipeline_primitives.h`:
+
+- **Wire-cost admission:** `estimate_wire_cost()` estimates data shards,
+  parity shards, encryption prefix and IPv4/IPv6 network overhead. The DRR
+  scheduler's byte field must be populated with this wire-cost estimate before
+  packetization, then reconciled to actual shard bytes after FEC generation.
+- **Socket pressure classification:** `classify_socket_error()` separates
+  host-local backpressure (`EAGAIN`, `EWOULDBLOCK`, `ENOBUFS`, `EINTR`),
+  MTU/packet-size failure (`EMSGSIZE`), route/peer failures and unknown errors.
+  Local backpressure is not a remote-congestion signal and must not independently
+  trigger bitrate/FEC adaptation.
+- **Unified frame budget:** move-only `pipeline_budget::reservation` tokens
+  reserve frame and byte capacity once, then travel with the same frame through
+  encoder-in-flight, packetizer-ready and sender-in-flight stages. Capacity is
+  released only when the final owner drops the token. This prevents a bounded
+  queue from simply shifting backlog into the next stage.
+- **GPU completion gate:** `completion_gate` represents explicit backend
+  completion. A surface lease must remain owned until the CUDA/NVENC, VAAPI or
+  DMA-BUF fence/callback confirms the resource can be reused; dequeue alone is
+  not completion.
+
+The new `tests/core_pipeline_primitives_smoke.cpp` covers wire overhead,
+socket error classes, aggregate reservation movement between stages, and
+explicit completion. The Linux workflow now compiles and runs this smoke test.
+
+### Required runtime composition
+
+The intended runtime flow is:
+
+1. At encoder admission, acquire one aggregate `pipeline_budget::reservation`
+   sized for the frame's conservative wire cost and encoder surface cost.
+2. Keep the GPU surface lease and completion gate with the frame owner. The
+   reservation and surface lease must not be released merely because encoded
+   output has been dequeued.
+3. After encode, enqueue the encoded frame into the per-session scheduler,
+   charging estimated wire bytes. Keep the same aggregate reservation attached.
+4. Packetize in bounded FEC blocks. Each block is a scheduling unit, preserving
+   FIFO within a session and allowing DRR to alternate sessions at FEC-block
+   boundaries. Do not interleave packets inside a block or reorder blocks within
+   a frame.
+5. The sender owns each session's packet sequence and encryption IV counter.
+   The sender reports actual socket outcomes and actual wire bytes; the budget
+   is released only after send completion or an explicit abort/recovery path.
+6. On teardown, invalidate the session generation, stop new admission, cancel
+   queued work, and wait for in-flight frame/block owners to release their
+   reservations and session-state references before destroying ciphers or
+   session buffers.
+
+### Runtime work still outstanding
+
+These primitives are deliberately not described as runtime features yet.
+Current encoders still publish through `mail::video_packets`, and the
+single `videoBroadcastThread` still owns packetization, FEC, encryption,
+pacing and socket submission. The following are still required:
+
+- Replace the raw `session_t*` packet channel reference with a lifetime-safe
+  session handle/generation that keeps the required immutable session state
+  alive across worker handoff.
+- Wire the aggregate reservation into encoder admission before conversion or
+  encode work is committed, not only after an encoded packet exists.
+- Move encoded output into the per-session DRR scheduler.
+- Split packetization from socket pacing with a bounded FEC-block handoff.
+- Keep packet sequence allocation, GCM IV allocation and encryption under one
+  serialized per-session sender owner. Do not parallelize these stateful steps.
+- Record partial batch sends and local kernel pressure separately from remote
+  loss/RTT signals.
+- Add teardown/reconnect stress tests with work held in every pipeline stage.
+
+The scheduler can prevent cross-session head-of-line blocking when its items
+are complete FEC blocks rather than whole frames. It cannot safely interleave
+blocks until the packetizer has produced a complete block and the protocol
+ordering/recovery rules are verified. The runtime must not split or reorder
+within a block.
