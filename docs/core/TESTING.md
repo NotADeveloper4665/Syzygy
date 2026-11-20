@@ -18,15 +18,15 @@ Required cases:
 ## Adapter and parser tests
 
 - `core_frame_correlation_smoke.cpp`: delayed/reordered PTS output, missing PTS, duplicate PTS, bounded pending records, and eviction.
-- `core_client_feedback_smoke.cpp`: exact FEC payload size/endian/count validation, legacy count/time parsing without a rate, and strict Syzygy client telemetry v1 validation.
-- `core_telemetry_smoke.cpp`: independent source freshness, capture/conversion/encode/sender/network/client classification, mixed stages, and observe-only behavior.
+- `core_client_feedback_smoke.cpp`: exact FEC payload size/endian/count/denominator validation, legacy count/time parsing without a rate, strict Syzygy client telemetry v1/v2 validation, and wrap-safe frame-index windows.
+- `core_telemetry_smoke.cpp`: independent source freshness, ENet sample-token freshness, capture/conversion/encode/sender/network/client classification, conservative FEC recovery-block evidence, mixed stages, and observe-only behavior.
 
 The Linux workflow compiles and runs all three smoke tests with `-Wall -Wextra -Werror`. The full GoogleTest target remains a separate validation item; the RPM packaging job currently configures `BUILD_TESTS=OFF`.
 
 ## Runtime diagnostics
 
 - Structured debug output is emitted per session no more often than every five seconds.
-- Output includes classification, confidence, capture-to-encoder age, capture callback duration, conversion, encoder submission-to-output, sender queue wait, control RTT/variance, FEC loss when reported, and client decode/presentation when supplied.
+- Output includes classification, confidence, capture-to-encoder age, capture callback duration, conversion, encoder submission-to-output, sender queue wait, control RTT/variance, client media inter-arrival jitter, FEC recovery-block loss count/denominator when reported, legacy count/interval, and separate client decode/presentation-queue/render values when supplied.
 - Missing values are rendered as unavailable; diagnostics never include pairing secrets or client identifiers.
 - Control RTT/variance, loss feedback, and client feedback are timestamped independently from host frame measurements.
 
