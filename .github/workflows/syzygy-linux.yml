@@ -60,7 +60,7 @@ jobs:
           echo "VGEM_DRM_CARD=$virtual_card" >> "$GITHUB_ENV"
       - name: Test CLI and protected key storage
         run: |
-          bash -n scripts/install-syzygy.sh scripts/update-syzygy-dev-rpm.sh
+          bash -n scripts/install-syzygy.sh scripts/update-syzygy-dev-rpm.sh scripts/collect-t1600-apd-telemetry.sh
           python3 -m unittest discover -s tests -p "test_dev_rpm_updater.py"
           python3 -m unittest discover -s tests -p "test_headless_launcher.py"
           python3 -m unittest discover -s tests -p "test_service_manager.py"
