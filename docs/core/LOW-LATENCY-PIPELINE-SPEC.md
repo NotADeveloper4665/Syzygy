@@ -334,6 +334,7 @@ The current Syzygy Core branch now has these observe-only adapters:
 - Legacy loss statistics are parsed at their exact 32-byte size and retained as raw count/interval. No denominator is invented.
 - Moonlight `SS_FRAME_FEC_STATUS` (`0x5502`) is validated and deduplicated per frame/block. The measured per-mille value is limited to reported FEC-recovery blocks.
 - ENet control RTT and RTT variance are sampled per session using a low-rate transport ping. RTT variance is explicitly a control-path variation proxy, not media-packet jitter.
+- RTT freshness advances only when ENet's acknowledged-packet sample token changes; polling a cached RTT does not keep it fresh. Recovery-triggered FEC block loss remains conditional diagnostic evidence and is not independently classified as stream-wide network pressure.
 - An optional Syzygy client telemetry v1 receiver is defined at `0x5506`. It validates client decode, presentation-queue, and render averages against a recent host frame index. No client sender is included, so those values remain unavailable on ordinary clients.
 
 All samples remain session-owned and timestamped by source group. The APD classifier is still observe-only. The shared global `video_packets` queue, single packetizer/sender thread, packetization/FEC timing, socket submission timing, media-path jitter, and encoder in-flight accounting remain open work. Physical T1600 acceptance has not been run.
