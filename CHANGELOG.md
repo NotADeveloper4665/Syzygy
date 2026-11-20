@@ -35,3 +35,4 @@ Notable repository changes are recorded here; entries do not imply unverified ru
 - ENet RTT/variance freshness now advances only on a new acknowledged-packet sample, preventing repeated polling of cached values from masking stale network telemetry.
 - Recovery-triggered FEC block loss remains conditional diagnostic evidence and cannot independently classify a session as network-bound.
 - Structured diagnostics now include client media jitter, FEC recovery-block loss, legacy loss count/interval, and separate client decode, presentation-queue, and render measurements.
+- FEC and client-feedback frame validation now uses wrap-safe 32-bit serial arithmetic.
