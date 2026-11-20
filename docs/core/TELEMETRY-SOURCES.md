@@ -1,30 +1,71 @@
 # Telemetry source registry
 
-This file records the exact provenance and limits of every metric currently connected to Syzygy Core. A value may not be promoted to a more specific stage metric without a separately verified timing boundary.
+This file records the exact provenance, units, timing boundaries, freshness group, and limitations of every metric connected to Syzygy Core. A value may not be promoted to a more specific stage metric without a separately verified boundary.
 
 ## Active adapters
 
-| Core field | Source | Unit / conversion | Timing boundary | Scope | Limits |
+| Core field | Source | Unit / conversion | Timing boundary | Freshness group | Limits |
 | --- | --- | --- | --- | --- | --- |
-| `host_pipeline_ms` | `video::packet_t::frame_timestamp` carried into `stream::videoBroadcastThread()` | Existing Moonlight frame-processing field is in 0.1 ms units; Core stores milliseconds as `latency / 10.0` | Captured-frame timestamp to the broadcaster's observation point immediately before packet header construction | Owning `session_t` | Aggregate host-side processing only; does not isolate capture, conversion, encode, queueing, network transit, or client presentation |
-| `encode_ms` | `nvenc_encode_session_t::encode_frame()` result | Milliseconds from NVENC API entry until matching frame-index output is returned | Submission-to-output availability; only recorded when output index matches submitted frame | Owning `session_t` via packet metadata | NVENC-only. Includes driver/API wait and output availability, not pure GPU-kernel time. AVCodec/FFmpeg timing remains unavailable pending safe frame correlation. |
-| `send_queue_ms` | `packet_raw_t::queued_at` to `stream::videoBroadcastThread()` dequeue | `steady_clock` duration in milliseconds | Packet publication immediately before `packets->raise()` to broadcaster dequeue | Owning `session_t` via packet `channel_data` | Internal packet queue wait only; excludes FEC, socket send, network transit, and client presentation |
+| `capture_ms` | `platf::img_t::frame_timestamp` carried through `video::encode()` | `steady_clock` milliseconds | Capture timestamp to encoder consumption; includes latest-slot/mailbox wait | Host | Timestamp may be unavailable on a backend; not pure capture-backend execution time |
+| `capture_backend_ms` | `img_t::capture_duration_ms` set by Linux KMS and X11 snapshot callbacks | `steady_clock` milliseconds | Callback entry before refresh/readback through image/surface availability and cursor composition | Host | Wired for Linux KMS readback, KMS surface, X11 SHM and non-SHM paths; other backends remain unavailable |
+| `conversion_ms` | `session->convert(*img)` in async and synchronized encode paths | `steady_clock` milliseconds | Immediately before conversion call to its return | Host | Includes any blocking synchronization inside the conversion call; does not include encoder submission |
+| `encode_ms` | NVENC `encode_frame()` and AVCodec `avcodec_send_frame()` / matching `avcodec_receive_packet()` | `steady_clock` milliseconds | Successful submission attempt to matching output availability | Host | Includes driver/API wait and encoder buffering/reordering; not pure GPU execution time |
+| `send_queue_ms` | `packet_raw_t::queued_at` to `videoBroadcastThread()` dequeue | `steady_clock` milliseconds | Packet publication immediately before `packets->raise()` to broadcaster dequeue | Host | Internal shared queue wait only; excludes FEC, socket submission, network transit, and client presentation |
+| `host_pipeline_ms` | `packet::frame_timestamp` and existing Moonlight `frame_processing_latency` calculation | 0.1 ms wire units converted to milliseconds | Captured-frame timestamp to broadcaster observation immediately before packet header construction | Host | Aggregate host-side time; overlaps detailed host stages and is never counted as an independent stage |
+| `network_rtt_ms` | Owning `ENetPeer::roundTripTime` | Milliseconds | Smoothed ENet control-channel RTT, sampled after a low-rate ENet ping | Network | Control-path RTT, not one-way media latency; refreshed with one ENet transport ping per second |
+| `network_rtt_variance_ms` | Owning `ENetPeer::roundTripTimeVariance` | Milliseconds | ENet's smoothed RTT-variance estimator | Network | A control-path variation proxy; not RTP inter-arrival jitter or one-way media jitter |
+| `packet_loss_per_mille` | Moonlight `SS_FRAME_FEC_STATUS` control message `0x5502` | `(totalDataPackets - receivedDataPackets) * 1000 / totalDataPackets` | One reported FEC block, before Reed-Solomon recovery | Loss | Client emits this report only for blocks requiring recovery; no report is unknown, not zero. It is not a complete stream-wide loss rate |
+| `packet_loss_count` | `SS_FRAME_FEC_STATUS` or legacy `IDX_LOSS_STATS` | Lost data shards or legacy packet count | One FEC block or legacy report interval | Loss | Raw count is retained separately from rate |
+| `packet_loss_interval_ms` | First two little-endian 32-bit values in the legacy 32-byte `IDX_LOSS_STATS` payload | Milliseconds | Client-reported interval since the previous legacy report | Loss | No verified packet denominator; never derive a percentage from count/time |
+| `client_decode_ms` | Syzygy client telemetry extension `0x5506`, v1 | Client average microseconds converted to milliseconds | Client-reported aggregate window | Client | Host parser is wired; no client sender is included in this repository |
+| `client_presentation_queue_ms` | Syzygy client telemetry extension `0x5506`, v1 | Client average microseconds converted to milliseconds | Decode-ready to renderer submission queue | Client | Requires a compatible client sender |
+| `client_render_ms` | Syzygy client telemetry extension `0x5506`, v1 | Client average microseconds converted to milliseconds | Client render/present submission duration | Client | Does not include physical panel scan-out or response |
+| `client_presentation_ms` | Sum of client presentation-queue and render averages | Milliseconds | Client-reported queue plus render interval | Client | Not end-to-end or physical display latency |
+
+## Safe FFmpeg frame correlation
+
+AVCodec output can be delayed or reordered relative to the frame most recently submitted. Syzygy records timing metadata in a bounded, session-owned PTS registry when `avcodec_send_frame()` succeeds. The registry is keyed by the submitted frame PTS and is consumed only when an output packet has the same PTS.
+
+- Missing or unknown PTS produces no stage metadata; current-frame metadata is never substituted.
+- Pending records are capped at 256 per encoder session.
+- Oldest pending records are evicted when the cap is reached; later output for an evicted PTS remains unmeasured.
+- Duplicate PTS registration is rejected.
+- FFmpeg encode time is successful submission-to-matching-output availability, including encoder buffering/reordering and driver wait.
+
+## Feedback protocol provenance
+
+### Moonlight FEC status
+
+`SS_FRAME_FEC_STATUS` is the client-to-host `0x5502` message defined by moonlight-common-c. Its multi-byte fields are network byte order. The client populates the frame index, FEC block index/count, total data shards, and directly received data shards before recovery. Syzygy validates the exact 21-byte payload, rejects impossible counters, and deduplicates the last 64 frame/block keys per session.
+
+The denominator is the reported block's `totalDataPackets`. Since the client reports blocks that needed recovery, the result is a recovery-triggered block sample, not a continuous loss estimate. See upstream definitions in [Video.h](https://github.com/moonlight-stream/moonlight-common-c/blob/master/src/Video.h) and population in [RtpVideoQueue.c](https://github.com/moonlight-stream/moonlight-common-c/blob/master/src/RtpVideoQueue.c).
+
+### Legacy loss statistics
+
+Legacy `IDX_LOSS_STATS` is accepted only at its exact 32-byte size. Syzygy reads the little-endian count and interval fields safely and stores them as raw observations. No per-mille value is inferred.
+
+### Client decode and presentation
+
+The optional Syzygy `0x5506` extension is specified in [CLIENT-TELEMETRY-PROTOCOL.md](CLIENT-TELEMETRY-PROTOCOL.md). The host parser validates its magic, version, exact length, duration bounds, and recent frame index. Existing Moonlight clients do not send it, and this repository contains no client sender; those fields therefore remain unavailable on ordinary sessions.
 
 ## Known but not connected
 
-| Candidate | Existing source | Why it is not mapped yet |
-| --- | --- | --- |
-| Packet loss | `IDX_LOSS_STATS` payload in `stream.cpp` | Payload reports a loss count and elapsed milliseconds. A verified packet denominator/window contract is not established, so no per-mille rate is inferred. |
-| AVCodec/FFmpeg encode latency | `encode_avcodec()` in `video.cpp` | Not connected: output may be delayed/reordered relative to submitted frames; a frame-index-correlated timing map is required. |
-| Capture latency | Platform capture callbacks | Capture backend timing boundaries vary and are not normalized yet. |
-| Network RTT / jitter | Existing control ping and feedback paths | No verified per-session RTT/jitter sample adapter has been implemented for Core. |
-| Client decode / presentation | Moonlight feedback path inspected for this milestone | Not currently supplied by the inspected protocol path. |
+| Candidate | Why it is not mapped yet |
+| --- | --- |
+| Media-path packet jitter | ENet RTT variance is only a control-channel path-variation proxy; no verified RTP inter-arrival jitter source is currently connected |
+| Packetizer/FEC duration | The shared broadcaster still combines packetization and FEC work; a dedicated stage boundary is required |
+| Socket submission duration and send errors | Must be measured separately from queue wait and remote network congestion |
+| Encoder in-flight count and output age | No backend-independent in-flight observation is connected yet |
+| Client decode/presentation values | Host receiver exists, but a compatible client sender is not present in this repository |
 
 ## Rules
 
 - Missing is not zero.
-- Never infer a packet-loss percentage from count/time without a packet denominator.
+- Do not infer a packet-loss percentage from legacy count/time without a denominator.
+- Do not treat an absent FEC report as zero loss.
+- Do not label ENet RTT variance as one-way or media-packet jitter.
+- Do not label internal sender queue wait as network transit.
 - Never label combined host-pipeline time as encode, capture, network, or client latency.
-- Keep samples owned by the corresponding session.
-- Preserve monotonic timestamps; reject stale and future-dated samples.
-- New adapters require a source citation in code comments, explicit units, timing boundaries, tests, and an update to this registry.
+- Keep samples and freshness timestamps owned by the corresponding session.
+- Preserve monotonic timestamps; stale or future-dated groups are ignored independently.
+- Keep APD observe-only; telemetry cannot mutate stream configuration.
