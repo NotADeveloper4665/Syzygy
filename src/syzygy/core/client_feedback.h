@@ -28,7 +28,8 @@ struct legacy_loss_stats {
   std::uint32_t interval_ms {};
 };
 
-struct client_telemetry_v1 {
+struct client_telemetry_report {
+  std::uint8_t version {};
   std::uint32_t last_frame_index {};
   std::uint16_t sample_count {};
   std::uint16_t window_ms {};
@@ -36,7 +37,13 @@ struct client_telemetry_v1 {
   double presentation_queue_ms {};
   double render_ms {};
   double presentation_ms {};
+  // Present only in v2: RFC 3550 RTP inter-arrival jitter, converted to ms
+  // using the negotiated RTP clock rate. This is not ENet RTT variance.
+  std::optional<double> media_interarrival_jitter_ms;
 };
+
+// Keep the v1 type name available for source compatibility with existing tests.
+using client_telemetry_v1 = client_telemetry_report;
 
 namespace detail {
 inline std::uint16_t read_be16(const unsigned char* p) noexcept {
@@ -83,6 +90,7 @@ inline std::optional<fec_frame_status> parse_fec_frame_status(std::string_view p
       result.total_data_packets == 0 ||
       result.received_data_packets > result.total_data_packets ||
       result.received_parity_packets > result.total_parity_packets ||
+      result.fec_percentage > 100 ||
       result.block_count == 0 || result.block_count > 4 ||
       result.block_index >= result.block_count) {
     return std::nullopt;
@@ -113,22 +121,24 @@ inline std::optional<legacy_loss_stats> parse_legacy_loss_stats(std::string_view
   return result;
 }
 
-// Syzygy client telemetry extension 0x5506. The 28-byte version-1 payload is
-// big-endian: "SZY1", version, flags, size, last frame index, sample count,
-// window ms, decode average us, presentation-queue average us, render average us.
+// Syzygy client telemetry extension 0x5506. Both versions use big-endian
+// fields and the "SZY1" family magic. V1 is 28 bytes; V2 appends a 32-bit
+// RFC 3550 media inter-arrival jitter average in microseconds (32 bytes total).
 // All durations are client-measured intervals; no cross-device clock sync is used.
-inline std::optional<client_telemetry_v1> parse_client_telemetry_v1(std::string_view payload) noexcept {
-  constexpr std::size_t expected_size = 28;
-  if (payload.size() != expected_size) return std::nullopt;
+inline std::optional<client_telemetry_report> parse_client_telemetry(std::string_view payload) noexcept {
+  if (payload.size() < 8) return std::nullopt;
 
   const auto* p = reinterpret_cast<const unsigned char*>(payload.data());
-  if (p[0] != 'S' || p[1] != 'Z' || p[2] != 'Y' || p[3] != '1' ||
-      p[4] != 1 || p[5] != 0 ||
-      detail::read_be16(p + 6) != expected_size) {
+  const auto version = p[4];
+  const std::size_t expected_size = version == 1 ? 28 : version == 2 ? 32 : 0;
+  if (expected_size == 0 || payload.size() != expected_size ||
+      p[0] != 'S' || p[1] != 'Z' || p[2] != 'Y' || p[3] != '1' ||
+      p[5] != 0 || detail::read_be16(p + 6) != expected_size) {
     return std::nullopt;
   }
 
-  client_telemetry_v1 result;
+  client_telemetry_report result;
+  result.version = version;
   result.last_frame_index = detail::read_be32(p + 8);
   result.sample_count = detail::read_be16(p + 12);
   result.window_ms = detail::read_be16(p + 14);
@@ -151,6 +161,25 @@ inline std::optional<client_telemetry_v1> parse_client_telemetry_v1(std::string_
   result.presentation_queue_ms = static_cast<double>(queue_us) / 1000.0;
   result.render_ms = static_cast<double>(render_us) / 1000.0;
   result.presentation_ms = result.presentation_queue_ms + result.render_ms;
+
+  if (version == 2) {
+    const auto jitter_us = detail::read_be32(p + 28);
+    if (jitter_us > max_duration_us) return std::nullopt;
+    result.media_interarrival_jitter_ms = static_cast<double>(jitter_us) / 1000.0;
+  }
+
+  return result;
+}
+
+inline std::optional<client_telemetry_v1> parse_client_telemetry_v1(std::string_view payload) noexcept {
+  auto result = parse_client_telemetry(payload);
+  if (!result || result->version != 1) return std::nullopt;
+  return result;
+}
+
+inline std::optional<client_telemetry_report> parse_client_telemetry_v2(std::string_view payload) noexcept {
+  auto result = parse_client_telemetry(payload);
+  if (!result || result->version != 2) return std::nullopt;
   return result;
 }
 
