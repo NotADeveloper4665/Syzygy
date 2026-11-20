@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <cmath>
 #include <deque>
 #include <fstream>
 #include <future>
@@ -1587,7 +1588,7 @@ namespace stream {
         if (packet->core_frame_timestamp) {
           const auto host_pipeline_ms = std::chrono::duration<double, std::milli>(
               pipeline_observed_at - *packet->core_frame_timestamp).count();
-          if (std::isfinite(host_pipeline_ms) && host_pipeline_ms <= 5000.0) {
+          if (std::isfinite(host_pipeline_ms) && host_pipeline_ms >= 0.0 && host_pipeline_ms <= 5000.0) {
             session->core_telemetry.host_pipeline_ms = host_pipeline_ms;
           } else {
             session->core_telemetry.host_pipeline_ms.reset();
