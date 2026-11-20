@@ -18,6 +18,7 @@ telemetry_sample baseline_sample(monotonic_clock::time_point now) {
   sample.encode_ms = 3.0;
   sample.send_queue_ms = 2.0;
   sample.network_rtt_ms = 25.0;
+  sample.network_observed_at = now;
   return sample;
 }
 }  // namespace
@@ -124,6 +125,7 @@ TEST(CoreTelemetry, ClientBoundRequiresExplicitClientTelemetry) {
   const auto now = monotonic_clock::now();
   auto sample = baseline_sample(now);
   sample.client_decode_ms = 15.0;
+  sample.client_observed_at = now;
   EXPECT_EQ(syzygy::core::assess_pipeline(sample, telemetry_policy {}, now).classification, bottleneck::client_bound);
   sample.client_decode_ms.reset();
   EXPECT_EQ(syzygy::core::assess_pipeline(sample, telemetry_policy {}, now).classification, bottleneck::healthy);
@@ -143,7 +145,7 @@ TEST(CoreTelemetry, SendQueueLatencyCanIdentifyNetworkBoundPipeline) {
   const auto now = monotonic_clock::now();
   auto sample = baseline_sample(now);
   sample.send_queue_ms = 12.0;
-  EXPECT_EQ(syzygy::core::assess_pipeline(sample, telemetry_policy {}, now).classification, bottleneck::network_bound);
+  EXPECT_EQ(syzygy::core::assess_pipeline(sample, telemetry_policy {}, now).classification, bottleneck::sender_queue_bound);
 }
 
 TEST(CoreTelemetry, IncompleteHostPipelineCannotClaimSingleBottleneck) {
