@@ -1610,11 +1610,6 @@ namespace stream {
         } else {
           session->core_telemetry.host_pipeline_ms.reset();
         }
-      } else {
-        std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
-        session->core_telemetry.observed_at = std::chrono::steady_clock::now();
-        session->core_telemetry.host_pipeline_ms.reset();
-        frame_header.frame_processing_latency = 0;
       }
 
       const auto diagnostic_now = std::chrono::steady_clock::now();
