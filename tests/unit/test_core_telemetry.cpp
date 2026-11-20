@@ -88,6 +88,24 @@ TEST(CoreTelemetry, IdentifiesNetworkBoundPipeline) {
   EXPECT_EQ(syzygy::core::assess_pipeline(sample, telemetry_policy {}, now).classification, bottleneck::network_bound);
 }
 
+TEST(CoreTelemetry, RecoveryTriggeredFecBlockLossIsDiagnosticNotNetworkRate) {
+  const auto now = monotonic_clock::now();
+  auto sample = baseline_sample(now);
+  sample.packet_loss_per_mille = 500.0;
+  sample.loss_observed_at = now;
+
+  auto result = syzygy::core::assess_pipeline(sample, telemetry_policy {}, now);
+  EXPECT_EQ(result.classification, bottleneck::healthy);
+  EXPECT_FALSE(result.evidence.empty());
+
+  // Without a fresh RTT or client media-jitter sample, FEC recovery reports
+  // alone cannot satisfy the network-stage evidence gate.
+  sample.network_rtt_ms.reset();
+  sample.network_observed_at = {};
+  result = syzygy::core::assess_pipeline(sample, telemetry_policy {}, now);
+  EXPECT_EQ(result.classification, bottleneck::insufficient_data);
+}
+
 TEST(CoreTelemetry, ClientMediaJitterIsNetworkEvidenceWithIndependentFreshness) {
   const auto now = monotonic_clock::now();
   auto sample = baseline_sample(now);
