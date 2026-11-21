@@ -41,16 +41,18 @@ int main() {
   const auto b_stats = scheduler.stats(b, now);
   assert(b_stats.frames == 1 && b_stats.bytes == 100 && b_stats.oldest_age_ms >= 10.0);
 
-  assert(scheduler.global_stats().bytes == 800);
+  assert(scheduler.global_stats().bytes == 900);
 
   // A's 200-byte head frame initially exceeds one 100-byte quantum. B's
   // smaller frame must still make progress, and A must retain FIFO order.
+  auto first = scheduler.try_pop();
+  assert(first && first->session.id == b.id && first->value == "b1");
+
   std::vector<std::string> a_order;
-  for (int i = 0; i < 5; ++i) {
+  for (int i = 0; i < 4; ++i) {
     auto item = scheduler.try_pop();
-    assert(item.has_value());
-    if (i == 0) assert(item->session.id == b.id);
-    if (item->session.id == a.id) a_order.push_back(item->value);
+    assert(item && item->session.id == a.id);
+    a_order.push_back(item->value);
   }
   assert((a_order == std::vector<std::string> {"a1", "a2", "a3", "idr"}));
 
