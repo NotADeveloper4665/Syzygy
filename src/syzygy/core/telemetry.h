@@ -26,6 +26,7 @@ struct telemetry_sample {
   // broadcaster. Network, loss, and client measurements have independent
   // timestamps so a fresh frame cannot make stale feedback look current.
   monotonic_clock::time_point observed_at {};
+  monotonic_clock::time_point sender_observed_at {};
   monotonic_clock::time_point network_observed_at {};
   monotonic_clock::time_point media_jitter_observed_at {};
   monotonic_clock::time_point loss_observed_at {};
