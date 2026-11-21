@@ -1639,6 +1639,16 @@ namespace stream {
                          << " conversion_ms=" << measurement(telemetry_snapshot.conversion_ms)
                          << " encoder_submit_to_output_ms=" << measurement(telemetry_snapshot.encode_ms)
                          << " sender_queue_ms=" << measurement(telemetry_snapshot.send_queue_ms)
+                         << " sender_sample_age_ms="
+                         << (telemetry_snapshot.sender_observed_at.time_since_epoch().count() != 0 && diagnostic_now >= telemetry_snapshot.sender_observed_at
+                               ? std::to_string(std::chrono::duration<double, std::milli>(diagnostic_now - telemetry_snapshot.sender_observed_at).count())
+                               : "n/a")
+                         << " packetization_ms=" << measurement(telemetry_snapshot.packetization_ms)
+                         << " fec_encode_ms=" << measurement(telemetry_snapshot.fec_encode_ms)
+                         << " encryption_ms=" << measurement(telemetry_snapshot.encryption_ms)
+                         << " sender_pacing_wait_ms=" << measurement(telemetry_snapshot.sender_pacing_wait_ms)
+                         << " socket_submit_ms=" << measurement(telemetry_snapshot.socket_submit_ms)
+                         << " frame_first_packet_ms=" << measurement(telemetry_snapshot.frame_first_packet_ms)
                          << " control_rtt_ms=" << measurement(telemetry_snapshot.network_rtt_ms)
                          << " control_rtt_variance_ms=" << measurement(telemetry_snapshot.network_rtt_variance_ms)
                          << " client_media_interarrival_jitter_ms=" << measurement(telemetry_snapshot.client_media_jitter_ms)
@@ -1672,6 +1682,12 @@ namespace stream {
         }
       }
       auto fecPercentage = wan && wan->enabled ? wan->current_fec() : config::stream.fec_percentage;
+      double apd_fec_encode_ms = 0.0;
+      double apd_encryption_ms = 0.0;
+      double apd_sender_pacing_wait_ms = 0.0;
+      double apd_socket_submit_ms = 0.0;
+      std::optional<double> apd_first_packet_ms;
+      const auto apd_packetization_started = std::chrono::steady_clock::now();
 
       // Insert space for packet headers
       auto blocksize = session->config.packetsize + MAX_RTP_HEADER_SIZE;
@@ -1732,6 +1748,8 @@ namespace stream {
         }
       }
 
+      const auto apd_packetization_ms = std::chrono::duration<double, std::milli>(
+          std::chrono::steady_clock::now() - apd_packetization_started).count();
       bool frame_send_completed = false;
       try {
         const auto wire_packet_bytes = blocksize + (session->video.cipher ? sizeof(video_packet_enc_prefix_t) : 0) +
@@ -1796,8 +1814,11 @@ namespace stream {
           }
 
           frame_fec_latency_logger.first_point_now();
+          const auto apd_fec_started = std::chrono::steady_clock::now();
           // If video encryption is enabled, we allocate space for the encryption header before each shard
           auto shards = fec::encode(current_payload, blocksize, fecPercentage, session->config.minRequiredFecPackets, session->video.cipher ? sizeof(video_packet_enc_prefix_t) : 0);
+          apd_fec_encode_ms += std::chrono::duration<double, std::milli>(
+              std::chrono::steady_clock::now() - apd_fec_started).count();
           frame_fec_latency_logger.second_point_now_and_log();
 
           auto peer_address = session->video.peer.address();
@@ -1844,6 +1865,7 @@ namespace stream {
 
             // Encrypt this shard if video encryption is enabled
             if (session->video.cipher) {
+              const auto apd_encrypt_started = std::chrono::steady_clock::now();
               // We use the deterministic IV construction algorithm specified in NIST SP 800-38D
               // Section 8.2.1. The sequence number is our "invocation" field and the 'V' in the
               // high bytes is the "fixed" field. Because each client provides their own unique
@@ -1861,6 +1883,8 @@ namespace stream {
               prefix->frameNumber = packet->frame_index();
               std::copy(std::begin(iv), std::end(iv), prefix->iv);
               session->video.cipher->encrypt(std::string_view {(char *) inspect, (size_t) blocksize}, prefix->tag, (uint8_t *) inspect, &iv);
+              apd_encryption_ms += std::chrono::duration<double, std::milli>(
+                  std::chrono::steady_clock::now() - apd_encrypt_started).count();
             }
 
             if (x - next_shard_to_send + 1 >= send_batch_size ||
@@ -1879,7 +1903,10 @@ namespace stream {
                 }
                 auto now = std::chrono::steady_clock::now();
                 if (now < due) {
+                  const auto wait_started = std::chrono::steady_clock::now();
                   timer->sleep_for(due - now);
+                  apd_sender_pacing_wait_ms += std::chrono::duration<double, std::milli>(
+                      std::chrono::steady_clock::now() - wait_started).count();
                 }
 
                 ratecontrol_group_packets_sent = 0;
@@ -1890,6 +1917,7 @@ namespace stream {
               batch_info.block_count = current_batch_size;
 
               frame_send_batch_latency_logger.first_point_now();
+              const auto apd_submit_started = std::chrono::steady_clock::now();
               // Use a batched send if it's supported on this platform
               if (!platf::send_batch(batch_info)) {
                 // Batched send is not available, so send each packet individually
@@ -1908,6 +1936,13 @@ namespace stream {
 
                   platf::send(send_info);
                 }
+              }
+              const auto apd_submit_completed = std::chrono::steady_clock::now();
+              apd_socket_submit_ms += std::chrono::duration<double, std::milli>(
+                  apd_submit_completed - apd_submit_started).count();
+              if (!apd_first_packet_ms) {
+                apd_first_packet_ms = std::chrono::duration<double, std::milli>(
+                    apd_submit_completed - packet_dequeued_at).count();
               }
               frame_send_batch_latency_logger.second_point_now_and_log();
 
@@ -1948,6 +1983,16 @@ namespace stream {
 
         session->video.lowseq = lowseq;
         frame_send_completed = true;
+        {
+          std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
+          session->core_telemetry.packetization_ms = apd_packetization_ms;
+          session->core_telemetry.fec_encode_ms = apd_fec_encode_ms;
+          session->core_telemetry.encryption_ms = apd_encryption_ms;
+          session->core_telemetry.sender_pacing_wait_ms = apd_sender_pacing_wait_ms;
+          session->core_telemetry.socket_submit_ms = apd_socket_submit_ms;
+          session->core_telemetry.frame_first_packet_ms = apd_first_packet_ms;
+          session->core_telemetry.sender_observed_at = std::chrono::steady_clock::now();
+        }
       } catch (const std::exception &e) {
         BOOST_LOG(error) << "Broadcast video failed "sv << e.what();
         std::this_thread::sleep_for(100ms);

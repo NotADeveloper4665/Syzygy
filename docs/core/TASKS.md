@@ -65,13 +65,14 @@ Specification: [LOW-LATENCY-PIPELINE-SPEC.md](LOW-LATENCY-PIPELINE-SPEC.md)
 - [ ] Measure encoder in-flight count and output age.
 - [ ] Measure encoded packet queue depth, oldest packet age and per-session occupancy.
 - [x] Add standalone wire-cost estimator including parity, encryption and IP overhead; connect it to DRR item byte costs during runtime integration.
-- [ ] Measure packetization/FEC, sender wait, socket submission and first-packet time.
+- [x] Measure packetization/header preparation, Reed-Solomon FEC encode duration, sender pacing wait, socket submission-call duration and dequeue-to-first-submission age. These are local host timings, not remote packet arrival.
 - [x] Add standalone socket error classification for local backpressure, MTU failure and route/peer failure.
 - [ ] Record dropped/replaced frames by reason, frame type and recovery action.
 - [ ] Add deterministic tests for session isolation and monotonic frame/packet numbers.
 
 ### Phase B — explicit bounded frame admission
 - [x] Implement a standalone bounded per-session DRR scheduler primitive with byte/frame limits, queue-age accounting, recovery reserves, FIFO preservation and generation-safe teardown; unit tests added.
+- [x] Add condition-variable wakeup and bounded wait to the scheduler so a sender worker can sleep when idle and wake on admission or shutdown; smoke tests cover enqueue wakeup and stop wakeup.
 - [ ] Wire the scheduler into the encoder publication path and replace the shared overflow-clearing video queue.
 - [x] Add move-only aggregate frame/byte reservation primitive spanning pipeline stages.
 - [ ] Wire aggregate reservations into encoder, packetizer and sender ownership.
@@ -122,3 +123,24 @@ Specification: [LOW-LATENCY-PIPELINE-SPEC.md](LOW-LATENCY-PIPELINE-SPEC.md)
 - [ ] Device Intelligence: client capability profiles with explicit provenance.
 - [ ] Session Recovery: recover failed stream components without killing the game where possible.
 - [ ] Session Handoff: transfer display, audio, and input ownership between devices.
+
+
+## Sender telemetry continuation (2026-11-21)
+
+- [x] Instrument packetization/header preparation independently from Reed-Solomon FEC encoding.
+- [x] Accumulate per-frame FEC encode duration across complete blocks.
+- [x] Accumulate per-frame AES-GCM encrypt-call duration separately from FEC and socket submission.
+- [x] Record intentional sender pacing sleep separately from socket submission.
+- [x] Record platform send submission-call duration and dequeue-to-first-submission age.
+- [ ] Replace the shared broadcaster with bounded per-session packetizer and paced-sender workers; the current instrumentation intentionally does not change send ordering or scheduling.
+- [ ] Capture platform send errors/partial batch outcomes with verified platform-specific semantics; current send wrappers do not expose a uniform result.
+- [ ] Add encoder in-flight/output-age and per-session packet occupancy measurements.
+
+
+## Syzygy 1.0 release preparation (2026-11-21)
+
+- [x] Establish a release acceptance checklist with explicit runtime, sender, telemetry, client-feedback, hardware, packaging, and approval gates: [1.0-ACCEPTANCE.md](../release/1.0-ACCEPTANCE.md).
+- [x] Add blocking sender-worker wakeup to the bounded DRR scheduler and deterministic wake/stop smoke coverage.
+- [ ] Wire the scheduler into the live encoder publication and broadcaster path; the shared global video queue remains active.
+- [ ] Implement bounded complete-FEC-block handoff and a separate paced sender worker.
+- [ ] Validate the release candidate on the physical T1600; CI does not satisfy this requirement.

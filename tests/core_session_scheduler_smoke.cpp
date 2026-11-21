@@ -2,6 +2,9 @@
 #include <chrono>
 #include <cstdint>
 #include <string>
+#include <optional>
+#include <thread>
+#include <vector>
 
 #include <src/syzygy/core/session_scheduler.h>
 
@@ -38,23 +41,61 @@ int main() {
   const auto b_stats = scheduler.stats(b, now);
   assert(b_stats.frames == 1 && b_stats.bytes == 100 && b_stats.oldest_age_ms >= 10.0);
 
-  // Old generation cannot enqueue after reconnect; unregister also releases
-  // queued packet ownership and global accounting.
+  assert(scheduler.global_stats().bytes == 900);
+
+  // A's 200-byte head frame initially exceeds one 100-byte quantum. B's
+  // smaller frame must still make progress, and A must retain FIFO order.
+  auto first = scheduler.try_pop();
+  assert(first && first->session.id == b.id && first->value == "b1");
+
+  std::vector<std::string> a_order;
+  for (int i = 0; i < 4; ++i) {
+    auto item = scheduler.try_pop();
+    assert(item && item->session.id == a.id);
+    a_order.push_back(item->value);
+  }
+  assert((a_order == std::vector<std::string> {"a1", "a2", "a3", "idr"}));
+
+  // A removed generation cannot publish after reconnect.
   assert(scheduler.unregister_session(b));
   const key_t b_reconnected {2, 2};
   assert(scheduler.register_session(b_reconnected));
   assert(scheduler.enqueue(b, "stale", 100, false) == scheduler_t::admission::stale_generation);
-  assert(scheduler.global_stats().bytes == 800);
 
-  // Drain in FIFO order within session A.
-  std::string first;
-  for (int i = 0; i < 4; ++i) {
-    auto item = scheduler.try_pop();
-    assert(item.has_value());
-    if (item->session.id == a.id && first.empty()) first = item->value;
-  }
-  assert(first == "a1");
+  // Unregister releases any queued ownership and restores global accounting.
+  const key_t c_key {3, 1};
+  assert(scheduler.register_session(c_key));
+  assert(scheduler.enqueue(c_key, "queued-owner", 50, true) == scheduler_t::admission::accepted);
+  assert(scheduler.global_stats().bytes == 50);
+  assert(scheduler.unregister_session(c_key));
+  assert(scheduler.global_stats().bytes == 0);
+
   scheduler.stop();
   assert(scheduler.enqueue(a, "after-stop", 10, true) == scheduler_t::admission::stopped);
+
+  // Sender workers can sleep until a frame is admitted instead of polling.
+  scheduler_t wake_scheduler;
+  const key_t wake_key {9, 1};
+  assert(wake_scheduler.register_session(wake_key));
+  std::optional<scheduler_t::scheduled_item> awakened;
+  std::thread sender_waiter([&] {
+    awakened = wake_scheduler.wait_pop_for(std::chrono::seconds(1));
+  });
+  std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  assert(wake_scheduler.enqueue(wake_key, "wake-frame", 1024, true) == scheduler_t::admission::accepted);
+  sender_waiter.join();
+  assert(awakened && awakened->value == "wake-frame");
+  wake_scheduler.stop();
+
+  scheduler_t stopped_scheduler;
+  assert(stopped_scheduler.register_session({10, 1}));
+  std::optional<scheduler_t::scheduled_item> stopped_result;
+  std::thread stopped_waiter([&] {
+    stopped_result = stopped_scheduler.wait_pop_for(std::chrono::seconds(1));
+  });
+  std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  stopped_scheduler.stop();
+  stopped_waiter.join();
+  assert(!stopped_result);
   return 0;
 }
