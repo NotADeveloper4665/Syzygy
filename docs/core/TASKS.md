@@ -128,6 +128,7 @@ Specification: [LOW-LATENCY-PIPELINE-SPEC.md](LOW-LATENCY-PIPELINE-SPEC.md)
 
 - [x] Instrument packetization/header preparation independently from Reed-Solomon FEC encoding.
 - [x] Accumulate per-frame FEC encode duration across complete blocks.
+- [x] Accumulate per-frame AES-GCM encrypt-call duration separately from FEC and socket submission.
 - [x] Record intentional sender pacing sleep separately from socket submission.
 - [x] Record platform send submission-call duration and dequeue-to-first-submission age.
 - [ ] Replace the shared broadcaster with bounded per-session packetizer and paced-sender workers; the current instrumentation intentionally does not change send ordering or scheduling.
