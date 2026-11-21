@@ -72,5 +72,16 @@ int main() {
   sender_waiter.join();
   assert(awakened && awakened->value == "wake-frame");
   wake_scheduler.stop();
+
+  scheduler_t stopped_scheduler;
+  assert(stopped_scheduler.register_session({10, 1}));
+  std::optional<scheduler_t::scheduled_item> stopped_result;
+  std::thread stopped_waiter([&] {
+    stopped_result = stopped_scheduler.wait_pop_for(std::chrono::seconds(1));
+  });
+  std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  stopped_scheduler.stop();
+  stopped_waiter.join();
+  assert(!stopped_result);
   return 0;
 }
