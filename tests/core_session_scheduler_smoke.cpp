@@ -41,12 +41,6 @@ int main() {
   const auto b_stats = scheduler.stats(b, now);
   assert(b_stats.frames == 1 && b_stats.bytes == 100 && b_stats.oldest_age_ms >= 10.0);
 
-  // Old generation cannot enqueue after reconnect; unregister also releases
-  // queued packet ownership and global accounting.
-  assert(scheduler.unregister_session(b));
-  const key_t b_reconnected {2, 2};
-  assert(scheduler.register_session(b_reconnected));
-  assert(scheduler.enqueue(b, "stale", 100, false) == scheduler_t::admission::stale_generation);
   assert(scheduler.global_stats().bytes == 800);
 
   // A's 200-byte head frame initially exceeds one 100-byte quantum. B's
@@ -59,6 +53,21 @@ int main() {
     if (item->session.id == a.id) a_order.push_back(item->value);
   }
   assert((a_order == std::vector<std::string> {"a1", "a2", "a3", "idr"}));
+
+  // A removed generation cannot publish after reconnect.
+  assert(scheduler.unregister_session(b));
+  const key_t b_reconnected {2, 2};
+  assert(scheduler.register_session(b_reconnected));
+  assert(scheduler.enqueue(b, "stale", 100, false) == scheduler_t::admission::stale_generation);
+
+  // Unregister releases any queued ownership and restores global accounting.
+  const key_t c_key {3, 1};
+  assert(scheduler.register_session(c_key));
+  assert(scheduler.enqueue(c_key, "queued-owner", 50, true) == scheduler_t::admission::accepted);
+  assert(scheduler.global_stats().bytes == 50);
+  assert(scheduler.unregister_session(c_key));
+  assert(scheduler.global_stats().bytes == 0);
+
   scheduler.stop();
   assert(scheduler.enqueue(a, "after-stop", 10, true) == scheduler_t::admission::stopped);
 
