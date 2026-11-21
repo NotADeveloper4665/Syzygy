@@ -26,6 +26,7 @@ struct telemetry_sample {
   // broadcaster. Network, loss, and client measurements have independent
   // timestamps so a fresh frame cannot make stale feedback look current.
   monotonic_clock::time_point observed_at {};
+  monotonic_clock::time_point sender_observed_at {};
   monotonic_clock::time_point network_observed_at {};
   monotonic_clock::time_point media_jitter_observed_at {};
   monotonic_clock::time_point loss_observed_at {};
@@ -39,6 +40,13 @@ struct telemetry_sample {
   std::optional<double> conversion_ms;
   std::optional<double> encode_ms;
   std::optional<double> send_queue_ms;
+  // Sender-stage timings; all are host-local monotonic durations in ms.
+  std::optional<double> packetization_ms;
+  std::optional<double> fec_encode_ms;
+  std::optional<double> encryption_ms;
+  std::optional<double> sender_pacing_wait_ms;
+  std::optional<double> socket_submit_ms;
+  std::optional<double> frame_first_packet_ms;
 
   // Combined capture-to-network-broadcast host pipeline time. This overlaps
   // detailed host stages and is never counted as an independent stage.

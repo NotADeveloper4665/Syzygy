@@ -70,6 +70,12 @@ bool valid_sample(const telemetry_sample& sample) noexcept {
          valid_duration(sample.conversion_ms) &&
          valid_duration(sample.encode_ms) &&
          valid_duration(sample.send_queue_ms) &&
+         valid_duration(sample.packetization_ms) &&
+         valid_duration(sample.fec_encode_ms) &&
+         valid_duration(sample.encryption_ms) &&
+         valid_duration(sample.sender_pacing_wait_ms) &&
+         valid_duration(sample.socket_submit_ms) &&
+         valid_duration(sample.frame_first_packet_ms) &&
          valid_duration(sample.host_pipeline_ms) &&
          valid_duration(sample.network_rtt_ms) &&
          valid_duration(sample.network_rtt_variance_ms) &&

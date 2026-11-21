@@ -65,7 +65,7 @@ Specification: [LOW-LATENCY-PIPELINE-SPEC.md](LOW-LATENCY-PIPELINE-SPEC.md)
 - [ ] Measure encoder in-flight count and output age.
 - [ ] Measure encoded packet queue depth, oldest packet age and per-session occupancy.
 - [x] Add standalone wire-cost estimator including parity, encryption and IP overhead; connect it to DRR item byte costs during runtime integration.
-- [ ] Measure packetization/FEC, sender wait, socket submission and first-packet time.
+- [x] Measure packetization/header preparation, Reed-Solomon FEC encode duration, sender pacing wait, socket submission-call duration and dequeue-to-first-submission age. These are local host timings, not remote packet arrival.
 - [x] Add standalone socket error classification for local backpressure, MTU failure and route/peer failure.
 - [ ] Record dropped/replaced frames by reason, frame type and recovery action.
 - [ ] Add deterministic tests for session isolation and monotonic frame/packet numbers.
@@ -122,3 +122,15 @@ Specification: [LOW-LATENCY-PIPELINE-SPEC.md](LOW-LATENCY-PIPELINE-SPEC.md)
 - [ ] Device Intelligence: client capability profiles with explicit provenance.
 - [ ] Session Recovery: recover failed stream components without killing the game where possible.
 - [ ] Session Handoff: transfer display, audio, and input ownership between devices.
+
+
+## Sender telemetry continuation (2026-11-21)
+
+- [x] Instrument packetization/header preparation independently from Reed-Solomon FEC encoding.
+- [x] Accumulate per-frame FEC encode duration across complete blocks.
+- [x] Accumulate per-frame AES-GCM encrypt-call duration separately from FEC and socket submission.
+- [x] Record intentional sender pacing sleep separately from socket submission.
+- [x] Record platform send submission-call duration and dequeue-to-first-submission age.
+- [ ] Replace the shared broadcaster with bounded per-session packetizer and paced-sender workers; the current instrumentation intentionally does not change send ordering or scheduling.
+- [ ] Capture platform send errors/partial batch outcomes with verified platform-specific semantics; current send wrappers do not expose a uniform result.
+- [ ] Add encoder in-flight/output-age and per-session packet occupancy measurements.
