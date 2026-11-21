@@ -28,6 +28,16 @@ int main() {
   invalid_loss.packet_loss_count = 2;
   assert(syzygy::core::valid_sample(invalid_loss));
 
+  telemetry_sample sender_stages;
+  sender_stages.packetization_ms = 0.4;
+  sender_stages.fec_encode_ms = 1.2;
+  sender_stages.sender_pacing_wait_ms = 3.0;
+  sender_stages.socket_submit_ms = 0.2;
+  sender_stages.frame_first_packet_ms = 2.5;
+  assert(syzygy::core::valid_sample(sender_stages));
+  sender_stages.socket_submit_ms = 5001.0;
+  assert(!syzygy::core::valid_sample(sender_stages));
+
   telemetry_sample sample;
   sample.observed_at = now;
   sample.host_pipeline_ms = 24.0;
