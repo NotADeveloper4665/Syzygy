@@ -1645,6 +1645,7 @@ namespace stream {
                                : "n/a")
                          << " packetization_ms=" << measurement(telemetry_snapshot.packetization_ms)
                          << " fec_encode_ms=" << measurement(telemetry_snapshot.fec_encode_ms)
+                         << " encryption_ms=" << measurement(telemetry_snapshot.encryption_ms)
                          << " sender_pacing_wait_ms=" << measurement(telemetry_snapshot.sender_pacing_wait_ms)
                          << " socket_submit_ms=" << measurement(telemetry_snapshot.socket_submit_ms)
                          << " frame_first_packet_ms=" << measurement(telemetry_snapshot.frame_first_packet_ms)
@@ -1682,6 +1683,7 @@ namespace stream {
       }
       auto fecPercentage = wan && wan->enabled ? wan->current_fec() : config::stream.fec_percentage;
       double apd_fec_encode_ms = 0.0;
+      double apd_encryption_ms = 0.0;
       double apd_sender_pacing_wait_ms = 0.0;
       double apd_socket_submit_ms = 0.0;
       std::optional<double> apd_first_packet_ms;
@@ -1863,6 +1865,7 @@ namespace stream {
 
             // Encrypt this shard if video encryption is enabled
             if (session->video.cipher) {
+              const auto apd_encrypt_started = std::chrono::steady_clock::now();
               // We use the deterministic IV construction algorithm specified in NIST SP 800-38D
               // Section 8.2.1. The sequence number is our "invocation" field and the 'V' in the
               // high bytes is the "fixed" field. Because each client provides their own unique
@@ -1880,6 +1883,8 @@ namespace stream {
               prefix->frameNumber = packet->frame_index();
               std::copy(std::begin(iv), std::end(iv), prefix->iv);
               session->video.cipher->encrypt(std::string_view {(char *) inspect, (size_t) blocksize}, prefix->tag, (uint8_t *) inspect, &iv);
+              apd_encryption_ms += std::chrono::duration<double, std::milli>(
+                  std::chrono::steady_clock::now() - apd_encrypt_started).count();
             }
 
             if (x - next_shard_to_send + 1 >= send_batch_size ||
@@ -1982,6 +1987,7 @@ namespace stream {
           std::lock_guard<std::mutex> lock {session->core_telemetry_mutex};
           session->core_telemetry.packetization_ms = apd_packetization_ms;
           session->core_telemetry.fec_encode_ms = apd_fec_encode_ms;
+          session->core_telemetry.encryption_ms = apd_encryption_ms;
           session->core_telemetry.sender_pacing_wait_ms = apd_sender_pacing_wait_ms;
           session->core_telemetry.socket_submit_ms = apd_socket_submit_ms;
           session->core_telemetry.frame_first_packet_ms = apd_first_packet_ms;
