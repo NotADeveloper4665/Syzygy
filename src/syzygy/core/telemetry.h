@@ -43,6 +43,7 @@ struct telemetry_sample {
   // Sender-stage timings; all are host-local monotonic durations in ms.
   std::optional<double> packetization_ms;
   std::optional<double> fec_encode_ms;
+  std::optional<double> encryption_ms;
   std::optional<double> sender_pacing_wait_ms;
   std::optional<double> socket_submit_ms;
   std::optional<double> frame_first_packet_ms;
