@@ -72,6 +72,7 @@ Specification: [LOW-LATENCY-PIPELINE-SPEC.md](LOW-LATENCY-PIPELINE-SPEC.md)
 
 ### Phase B — explicit bounded frame admission
 - [x] Implement a standalone bounded per-session DRR scheduler primitive with byte/frame limits, queue-age accounting, recovery reserves, FIFO preservation and generation-safe teardown; unit tests added.
+- [x] Add condition-variable wakeup and bounded wait to the scheduler so a sender worker can sleep when idle and wake on admission or shutdown; smoke tests cover enqueue wakeup and stop wakeup.
 - [ ] Wire the scheduler into the encoder publication path and replace the shared overflow-clearing video queue.
 - [x] Add move-only aggregate frame/byte reservation primitive spanning pipeline stages.
 - [ ] Wire aggregate reservations into encoder, packetizer and sender ownership.
@@ -134,3 +135,12 @@ Specification: [LOW-LATENCY-PIPELINE-SPEC.md](LOW-LATENCY-PIPELINE-SPEC.md)
 - [ ] Replace the shared broadcaster with bounded per-session packetizer and paced-sender workers; the current instrumentation intentionally does not change send ordering or scheduling.
 - [ ] Capture platform send errors/partial batch outcomes with verified platform-specific semantics; current send wrappers do not expose a uniform result.
 - [ ] Add encoder in-flight/output-age and per-session packet occupancy measurements.
+
+
+## Syzygy 1.0 release preparation (2026-11-21)
+
+- [x] Establish a release acceptance checklist with explicit runtime, sender, telemetry, client-feedback, hardware, packaging, and approval gates: [1.0-ACCEPTANCE.md](../release/1.0-ACCEPTANCE.md).
+- [x] Add blocking sender-worker wakeup to the bounded DRR scheduler and deterministic wake/stop smoke coverage.
+- [ ] Wire the scheduler into the live encoder publication and broadcaster path; the shared global video queue remains active.
+- [ ] Implement bounded complete-FEC-block handoff and a separate paced sender worker.
+- [ ] Validate the release candidate on the physical T1600; CI does not satisfy this requirement.
