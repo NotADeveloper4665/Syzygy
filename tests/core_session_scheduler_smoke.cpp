@@ -4,6 +4,7 @@
 #include <string>
 #include <optional>
 #include <thread>
+#include <vector>
 
 #include <src/syzygy/core/session_scheduler.h>
 
@@ -48,14 +49,16 @@ int main() {
   assert(scheduler.enqueue(b, "stale", 100, false) == scheduler_t::admission::stale_generation);
   assert(scheduler.global_stats().bytes == 800);
 
-  // Drain in FIFO order within session A.
-  std::string first;
-  for (int i = 0; i < 4; ++i) {
+  // A's 200-byte head frame initially exceeds one 100-byte quantum. B's
+  // smaller frame must still make progress, and A must retain FIFO order.
+  std::vector<std::string> a_order;
+  for (int i = 0; i < 5; ++i) {
     auto item = scheduler.try_pop();
     assert(item.has_value());
-    if (item->session.id == a.id && first.empty()) first = item->value;
+    if (i == 0) assert(item->session.id == b.id);
+    if (item->session.id == a.id) a_order.push_back(item->value);
   }
-  assert(first == "a1");
+  assert((a_order == std::vector<std::string> {"a1", "a2", "a3", "idr"}));
   scheduler.stop();
   assert(scheduler.enqueue(a, "after-stop", 10, true) == scheduler_t::admission::stopped);
 
