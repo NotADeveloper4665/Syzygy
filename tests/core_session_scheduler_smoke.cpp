@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cstdint>
 #include <string>
+#include <thread>
 
 #include <src/syzygy/core/session_scheduler.h>
 
@@ -56,5 +57,19 @@ int main() {
   assert(first == "a1");
   scheduler.stop();
   assert(scheduler.enqueue(a, "after-stop", 10, true) == scheduler_t::admission::stopped);
+
+  // Sender workers can sleep until a frame is admitted instead of polling.
+  scheduler_t wake_scheduler;
+  const key_t wake_key {9, 1};
+  assert(wake_scheduler.register_session(wake_key));
+  std::optional<scheduler_t::scheduled_item> awakened;
+  std::thread sender_waiter([&] {
+    awakened = wake_scheduler.wait_pop_for(std::chrono::seconds(1));
+  });
+  std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  assert(wake_scheduler.enqueue(wake_key, "wake-frame", 1024, true) == scheduler_t::admission::accepted);
+  sender_waiter.join();
+  assert(awakened && awakened->value == "wake-frame");
+  wake_scheduler.stop();
   return 0;
 }
