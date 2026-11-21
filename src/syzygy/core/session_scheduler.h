@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <condition_variable>
 #include <deque>
 #include <map>
 #include <mutex>
@@ -168,7 +169,24 @@ public:
     if (keyframe) {
       session.recovery_required = false;
     }
+    ready_.notify_one();
     return admission::accepted;
+  }
+
+  // Blocks the sender worker without polling when there is no admitted frame.
+  // The scheduler lock is released before try_pop() performs DRR selection.
+  template<class Rep, class Period>
+  std::optional<scheduled_item> wait_pop_for(const std::chrono::duration<Rep, Period>& timeout) {
+    {
+      std::unique_lock lock {mutex_};
+      if (!ready_.wait_for(lock, timeout, [&] { return !running_ || global_frames_ > 0; })) {
+        return std::nullopt;
+      }
+      if (!running_) {
+        return std::nullopt;
+      }
+    }
+    return try_pop();
   }
 
   std::optional<scheduled_item> try_pop() {
@@ -241,6 +259,7 @@ public:
   void stop() {
     std::lock_guard lock {mutex_};
     running_ = false;
+    ready_.notify_all();
     sessions_.clear();
     order_.clear();
     cursor_ = 0;
@@ -261,6 +280,7 @@ private:
 
   limits limits_;
   mutable std::mutex mutex_;
+  std::condition_variable ready_;
   bool running_ {true};
   std::map<std::uint64_t, session_state> sessions_;
   std::vector<std::uint64_t> order_;
