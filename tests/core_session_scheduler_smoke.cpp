@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cstdint>
 #include <string>
+#include <optional>
 #include <thread>
 
 #include <src/syzygy/core/session_scheduler.h>
