@@ -85,7 +85,7 @@ jobs:
           /tmp/syzygy-core-client-feedback-smoke
       - name: Test bounded per-session scheduler
         run: |
-          g++ -std=c++23 -Wall -Wextra -Werror -I. tests/core_session_scheduler_smoke.cpp -o /tmp/syzygy-session-scheduler-smoke
+          g++ -std=c++23 -Wall -Wextra -Werror -I. tests/core_session_scheduler_smoke.cpp -pthread -o /tmp/syzygy-session-scheduler-smoke
           /tmp/syzygy-session-scheduler-smoke
       - name: Test pipeline wire cost, socket pressure and ownership
         run: |
