@@ -31,6 +31,7 @@ int main() {
   telemetry_sample sender_stages;
   sender_stages.packetization_ms = 0.4;
   sender_stages.fec_encode_ms = 1.2;
+  sender_stages.encryption_ms = 0.6;
   sender_stages.sender_pacing_wait_ms = 3.0;
   sender_stages.socket_submit_ms = 0.2;
   sender_stages.frame_first_packet_ms = 2.5;
