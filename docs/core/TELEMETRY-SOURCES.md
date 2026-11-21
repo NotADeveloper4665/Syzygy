@@ -55,7 +55,7 @@ The standard Moonlight `0x0204` Frame Stats message is marked unused in moonligh
 
 ## Newly instrumented sender boundaries
 
-The shared broadcaster now records packetization/header preparation, accumulated Reed-Solomon FEC encoding, local pacing sleep, platform socket submission-call duration, and dequeue-to-first-submission age independently. These measurements are diagnostic only. They do not establish actual packet arrival, and the sender remains a single shared worker; no per-session packetizer/sender handoff has been integrated.
+The shared broadcaster now records packetization/header preparation, accumulated Reed-Solomon FEC encoding, local pacing sleep, platform socket submission-call duration, and dequeue-to-first-submission age independently. Sender measurements have their own `sender_observed_at` freshness timestamp and are not refreshed by a newly dequeued frame. These measurements are diagnostic only. They do not establish actual packet arrival, and the sender remains a single shared worker; no per-session packetizer/sender handoff has been integrated.
 
 ## Known but not connected
 
