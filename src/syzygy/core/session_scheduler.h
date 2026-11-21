@@ -116,6 +116,7 @@ public:
     if (cursor_ >= order_.size()) {
       cursor_ = 0;
     }
+    ready_.notify_all();
     return true;
   }
 
