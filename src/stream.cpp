@@ -1639,6 +1639,10 @@ namespace stream {
                          << " conversion_ms=" << measurement(telemetry_snapshot.conversion_ms)
                          << " encoder_submit_to_output_ms=" << measurement(telemetry_snapshot.encode_ms)
                          << " sender_queue_ms=" << measurement(telemetry_snapshot.send_queue_ms)
+                         << " sender_sample_age_ms="
+                         << (telemetry_snapshot.sender_observed_at.time_since_epoch().count() != 0 && diagnostic_now >= telemetry_snapshot.sender_observed_at
+                               ? std::to_string(std::chrono::duration<double, std::milli>(diagnostic_now - telemetry_snapshot.sender_observed_at).count())
+                               : "n/a")
                          << " packetization_ms=" << measurement(telemetry_snapshot.packetization_ms)
                          << " fec_encode_ms=" << measurement(telemetry_snapshot.fec_encode_ms)
                          << " sender_pacing_wait_ms=" << measurement(telemetry_snapshot.sender_pacing_wait_ms)
@@ -1981,7 +1985,7 @@ namespace stream {
           session->core_telemetry.sender_pacing_wait_ms = apd_sender_pacing_wait_ms;
           session->core_telemetry.socket_submit_ms = apd_socket_submit_ms;
           session->core_telemetry.frame_first_packet_ms = apd_first_packet_ms;
-          session->core_telemetry.observed_at = std::chrono::steady_clock::now();
+          session->core_telemetry.sender_observed_at = std::chrono::steady_clock::now();
         }
       } catch (const std::exception &e) {
         BOOST_LOG(error) << "Broadcast video failed "sv << e.what();
