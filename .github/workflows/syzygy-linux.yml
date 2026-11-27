@@ -98,6 +98,26 @@ jobs:
               fi
               # Package udev rules can reset the virtual device permissions.
               chmod 0666 "$SYZYGY_CI_VGEM_CARD"
+              useradd -m syzygy-ci
+              # Pass the host render-node group through to the unprivileged
+              # test account. Device nodes are bind-mounted from the runner;
+              # chmod from inside the container is not permitted.
+              render_node=""
+              for candidate in /dev/dri/renderD*; do
+                [ -e "$candidate" ] || continue
+                render_node="$candidate"
+                break
+              done
+              if [ -n "$render_node" ]; then
+                render_gid="$(stat -c "%g" "$render_node")"
+                render_group="$(getent group "$render_gid" | cut -d: -f1 || true)"
+                if [ -z "$render_group" ]; then
+                  groupadd --gid "$render_gid" syzygy-render
+                  render_group=syzygy-render
+                fi
+                usermod -aG "$render_group" syzygy-ci
+                runuser -u syzygy-ci -- test -r "$render_node"
+              fi
               install -d -m 1777 /tmp/.X11-unix
               ls -l /dev/dri
               mkdir -p /tmp/headless-protocols
@@ -109,7 +129,6 @@ jobs:
               g++ -std=c++17 -Isrc -I/tmp/headless-protocols tests/headless_capture_smoke.cpp \
                 zkde-screencast-unstable-v1.o fake-input.o $(pkg-config --cflags --libs wayland-client libpipewire-0.3) \
                 -pthread -o /tmp/headless-capture-smoke
-              useradd -m syzygy-ci
               timeout 90s runuser -u syzygy-ci -- env SYZYGY_HEADLESS_SIZE=640x480 LIBGL_ALWAYS_SOFTWARE=1 QT_LOGGING_RULES="kwin_core.debug=true;KWIN_UTILS.debug=true" \
                 python3 /src/src_assets/linux/assets/scripts/syzygy-headless.py --binary /tmp/headless-capture-smoke
               cmake -S /src -B /src/build-fedora -G Ninja -DCMAKE_BUILD_TYPE=Release \
