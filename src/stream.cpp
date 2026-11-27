@@ -368,6 +368,8 @@ namespace stream {
       std::string ping_payload;
 
       int lowseq;
+      bool awaiting_send_recovery = false;
+      std::chrono::steady_clock::time_point next_send_recovery_request {};
       udp::endpoint peer;
 
       std::optional<crypto::cipher::gcm_t> cipher;
@@ -1334,6 +1336,9 @@ namespace stream {
 
     logging::min_max_avg_periodic_logger<double> frame_processing_latency_logger(debug, "Frame processing latency", "ms");
 
+    logging::min_max_avg_periodic_logger<double> sender_queue_wait_logger(debug, "Video sender queue wait", "ms", 5s);
+    auto next_queue_stall_log = std::chrono::steady_clock::time_point::min();
+
     logging::time_delta_periodic_logger frame_send_batch_latency_logger(debug, "Network: each send_batch() latency");
     logging::time_delta_periodic_logger frame_fec_latency_logger(debug, "Network: each FEC block latency");
     logging::time_delta_periodic_logger frame_network_latency_logger(debug, "Network: frame's overall network latency");
@@ -1353,9 +1358,34 @@ namespace stream {
         break;
       }
 
+      const auto dequeued_at = std::chrono::steady_clock::now();
+      if (packet->sender_queue_entered_at) {
+        const auto queue_wait = dequeued_at - *packet->sender_queue_entered_at;
+        const auto queue_wait_ms = std::chrono::duration<double, std::milli>(queue_wait).count();
+        sender_queue_wait_logger.collect_and_log(queue_wait_ms);
+        if (queue_wait >= 100ms && dequeued_at >= next_queue_stall_log) {
+          BOOST_LOG(debug) << "Video sender queue stall: " << queue_wait_ms
+                           << " ms, frame " << packet->frame_index()
+                           << ", keyframe " << packet->is_idr();
+          next_queue_stall_log = dequeued_at + 5s;
+        }
+      }
+
       frame_network_latency_logger.first_point_now();
 
       auto session = (session_t *) packet->channel_data;
+      auto request_send_recovery = [&] {
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= session->video.next_send_recovery_request) {
+          session->video.idr_events->raise(true);
+          session->video.next_send_recovery_request = now + 100ms;
+        }
+      };
+      if (session->video.awaiting_send_recovery && !packet->is_idr()) {
+        request_send_recovery();
+        continue;
+      }
+
       auto lowseq = session->video.lowseq;
 
       std::string_view payload {(char *) packet->data(), packet->data_size()};
@@ -1517,7 +1547,9 @@ namespace stream {
         size_t ratecontrol_group_packets_sent = 0;
 
         auto blockIndex = 0;
-        std::for_each(fec_blocks_begin, fec_blocks_end, [&](std::string_view &current_payload) {
+        bool frame_send_failed = false;
+        for (auto block = fec_blocks_begin; block != fec_blocks_end; ++block) {
+          auto &current_payload = *block;
           auto packets = (current_payload.size() + (blocksize - 1)) / blocksize;
 
           for (int x = 0; x < packets; ++x) {
@@ -1635,7 +1667,13 @@ namespace stream {
 
               frame_send_batch_latency_logger.first_point_now();
               // Use a batched send if it's supported on this platform
+              batch_info.fallback_allowed = true;
               if (!platf::send_batch(batch_info)) {
+                if (!batch_info.fallback_allowed) {
+                  frame_send_batch_latency_logger.second_point_now_and_log();
+                  frame_send_failed = true;
+                  break;
+                }
                 // Batched send is not available, so send each packet individually
                 BOOST_LOG(verbose) << "Falling back to unbatched send"sv;
                 for (auto y = 0; y < current_batch_size; y++) {
@@ -1650,15 +1688,27 @@ namespace stream {
                     session->localAddress,
                   };
 
-                  platf::send(send_info);
+                  if (!platf::send(send_info)) {
+                    frame_send_failed = true;
+                    break;
+                  }
                 }
               }
               frame_send_batch_latency_logger.second_point_now_and_log();
+              if (frame_send_failed) {
+                break;
+              }
 
               ratecontrol_group_packets_sent += current_batch_size;
               ratecontrol_frame_packets_sent += current_batch_size;
               next_shard_to_send = x + 1;
             }
+          }
+
+          // Even a partial transmission consumes sequence numbers in this FEC block.
+          lowseq += shards.size();
+          if (frame_send_failed) {
+            break;
           }
 
           // remember this in case the next frame comes immediately
@@ -1679,10 +1729,20 @@ namespace stream {
                              << (packet->after_ref_frame_invalidation ? " RFI" : "");
 
           ++blockIndex;
-          lowseq += shards.size();
-        });
+        }
 
         session->video.lowseq = lowseq;
+        if (frame_send_failed) {
+          if (!session->video.awaiting_send_recovery) {
+            BOOST_LOG(warning) << "Video frame submission failed; requesting a recovery keyframe";
+          }
+          session->video.awaiting_send_recovery = true;
+          ratecontrol_next_frame_start = std::chrono::steady_clock::now();
+          request_send_recovery();
+        } else if (packet->is_idr()) {
+          session->video.awaiting_send_recovery = false;
+          session->video.next_send_recovery_request = {};
+        }
       } catch (const std::exception &e) {
         BOOST_LOG(error) << "Broadcast video failed "sv << e.what();
         std::this_thread::sleep_for(100ms);

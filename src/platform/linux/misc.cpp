@@ -41,6 +41,7 @@
 #include "src/logging.h"
 #include "src/platform/common.h"
 #include "vaapi.h"
+#include "video_send_retry.h"
 
 #include <linux/rtnetlink.h>
 
@@ -447,6 +448,8 @@ std::string get_local_ip_for_gateway() {
   }
 
   bool send_batch(batched_send_info_t &send_info) {
+    send_info.fallback_allowed = false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(5);
     auto sockfd = (int) send_info.native_socket;
     struct msghdr msg = {};
 
@@ -562,28 +565,19 @@ std::string get_local_ip_for_gateway() {
         // This will fail if GSO is not available, so we will fall back to non-GSO if
         // it's the first sendmsg() call. On subsequent calls, we will treat errors as
         // actual failures and return to the caller.
-        auto bytes_sent = sendmsg(sockfd, &msg, 0);
+        const auto bytes_sent = detail::send_video_datagrams(sockfd, deadline, [&] {
+          return sendmsg(sockfd, &msg, MSG_DONTWAIT);
+        });
         if (bytes_sent < 0) {
-          // If there's no send buffer space, wait for some to be available
-          if (errno == EAGAIN) {
-            struct pollfd pfd;
-
-            pfd.fd = sockfd;
-            pfd.events = POLLOUT;
-
-            if (poll(&pfd, 1, -1) != 1) {
-              BOOST_LOG(warning) << "poll() failed: "sv << errno;
-              break;
-            }
-
-            // Try to send again
-            continue;
+          if (errno == ETIMEDOUT || seg_index != 0) {
+            return false;
           }
-
-          BOOST_LOG(verbose) << "sendmsg() failed: "sv << errno;
           break;
         }
 
+        if (bytes_sent == 0 || bytes_sent % msg_size != 0) {
+          return false;
+        }
         seg_index += bytes_sent / msg_size;
       }
 
@@ -624,25 +618,10 @@ std::string get_local_ip_for_gateway() {
       // Call sendmmsg() until all messages are sent
       size_t blocks_sent = 0;
       while (blocks_sent < send_info.block_count) {
-        int msgs_sent = sendmmsg(sockfd, &msgs[blocks_sent], send_info.block_count - blocks_sent, 0);
-        if (msgs_sent < 0) {
-          // If there's no send buffer space, wait for some to be available
-          if (errno == EAGAIN) {
-            struct pollfd pfd;
-
-            pfd.fd = sockfd;
-            pfd.events = POLLOUT;
-
-            if (poll(&pfd, 1, -1) != 1) {
-              BOOST_LOG(warning) << "poll() failed: "sv << errno;
-              break;
-            }
-
-            // Try to send again
-            continue;
-          }
-
-          BOOST_LOG(warning) << "sendmmsg() failed: "sv << errno;
+        const auto msgs_sent = detail::send_video_datagrams(sockfd, deadline, [&] {
+          return sendmmsg(sockfd, &msgs[blocks_sent], send_info.block_count - blocks_sent, MSG_DONTWAIT);
+        });
+        if (msgs_sent <= 0) {
           return false;
         }
 

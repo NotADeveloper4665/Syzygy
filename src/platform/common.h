@@ -674,6 +674,9 @@ namespace platf {
     uint16_t target_port;
     boost::asio::ip::address &source_address;
 
+    // A false return may only trigger per-packet fallback if no datagrams were attempted.
+    bool fallback_allowed = true;
+
     /**
      * @brief Returns a payload buffer descriptor for the given payload offset.
      * @param offset The offset in the total payload data (bytes).

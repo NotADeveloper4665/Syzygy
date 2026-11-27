@@ -71,6 +71,8 @@ jobs:
           ./wan-smoke
           g++ -std=c++17 -Wall -Wextra -Werror -Isrc tests/wan_pacing_smoke.cpp -o wan-pacing-smoke
           ./wan-pacing-smoke
+          g++ -std=c++17 -Wall -Wextra -Werror -I. tests/video_send_retry_smoke.cpp -o video-send-retry-smoke
+          ./video-send-retry-smoke
           g++ -std=c++17 -Wall -Wextra -Werror -Isrc tests/test_tailscale_pairing.cpp -lcurl -o tailscale-pairing-smoke
           ./tailscale-pairing-smoke
           g++ -std=c++17 -Wall -Wextra -Werror -Isrc tests/test_pipewire_memory.cpp -o pipewire-memory-smoke

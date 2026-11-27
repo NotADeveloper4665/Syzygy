@@ -1505,6 +1505,7 @@ namespace video {
 
       packet->replacements = &session.replacements;
       packet->channel_data = channel_data;
+      packet->sender_queue_entered_at = std::chrono::steady_clock::now();
       packets->raise(std::move(packet));
     }
 
@@ -1526,6 +1527,7 @@ namespace video {
     packet->channel_data = channel_data;
     packet->after_ref_frame_invalidation = encoded_frame.after_ref_frame_invalidation;
     packet->frame_timestamp = frame_timestamp;
+    packet->sender_queue_entered_at = std::chrono::steady_clock::now();
     packets->raise(std::move(packet));
 
     return 0;
